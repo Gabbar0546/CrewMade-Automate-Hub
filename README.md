@@ -120,9 +120,25 @@ docker compose down
 
 Postgres data is stored in the named Docker volume `crewmade_postgres_data`.
 
-## Server auto-deploy
+## CI/CD
 
-The production server can run a systemd timer that checks GitHub `main` and redeploys when a new commit is available.
+GitHub Actions builds every push to `dev` and `main`, plus pull requests into `main`.
+
+Production deploy runs only when `main` receives a push. The action connects to the server, pulls `main`, rebuilds Docker, and verifies the HTTPS login page.
+
+Recommended release flow:
+
+```txt
+local changes -> push to dev -> PR dev into main -> merge -> GitHub Actions deploys production
+```
+
+Required GitHub repository secrets:
+
+```txt
+SERVER_HOST=187.127.185.226
+SERVER_USER=root
+SERVER_PASSWORD=<server ssh password>
+```
 
 Current server deployment path:
 
@@ -140,7 +156,7 @@ systemctl status crewmade-automate-hub-deploy.timer
 tail -f /var/log/crewmade-automate-hub-deploy.log
 ```
 
-Manual deploy on the server:
+Manual deploy fallback on the server:
 
 ```bash
 /usr/local/bin/crewmade-automate-hub-deploy
