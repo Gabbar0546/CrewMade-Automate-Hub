@@ -211,7 +211,6 @@ const tabs: Array<{ id: Tab; label: string; icon: string; group: "main" | "opera
   { id: "overview", label: "Dashboard", icon: "▦", group: "main" },
   { id: "instances", label: "n8n Connections", icon: "⇄", group: "main" },
   { id: "workflows", label: "n8n Workflows", icon: "⚡", group: "main" },
-  { id: "monitoring", label: "Monitoring", icon: "⌁", group: "operations" },
   { id: "observability", label: "Observability", icon: "▥", group: "operations" },
   { id: "n8n-credentials", label: "n8n Credentials", icon: "⚿", group: "operations" },
   { id: "credentials", label: "Credential Store", icon: "⬡", group: "operations" },
@@ -495,16 +494,15 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
         </header>
 
         <section className="page-surface">
-          {tab !== "workflows" && tab !== "monitoring" && (
+          {tab !== "workflows" && (
             <div className="page-title">
               <h1>{activeTab?.label}</h1>
               <p>{activeTab ? sectionDescriptions[activeTab.id] : ""}</p>
             </div>
           )}
-          {tab === "overview" && <Overview dashboard={dashboard} />}
+          {tab === "overview" && <Overview dashboard={dashboard} instanceId={selectedInstance} />}
           {tab === "instances" && <Instances onSaved={refreshInstances} instances={instances} />}
           {tab === "workflows" && <Workflows instanceId={selectedInstance} currentUser={user} />}
-          {tab === "monitoring" && <Monitoring instanceId={selectedInstance} />}
           {tab === "observability" && <Observability instanceId={selectedInstance} />}
           {tab === "n8n-credentials" && <N8nCredentials instanceId={selectedInstance} />}
           {tab === "credentials" && <SimpleLibrary kind="credential-store" title="Credential Store" />}
@@ -537,7 +535,7 @@ function FeatureBoard({ title, cards }: { title: string; cards: string[] }) {
   );
 }
 
-function Overview({ dashboard }: { dashboard: DashboardData | null }) {
+function Overview({ dashboard, instanceId }: { dashboard: DashboardData | null; instanceId: string }) {
   const cards = [
     ["n8n connected", dashboard?.n8n.connected ? "Yes" : "No"],
     ["Workflows", dashboard?.n8n.totalWorkflows ?? 0],
@@ -549,13 +547,24 @@ function Overview({ dashboard }: { dashboard: DashboardData | null }) {
     ["MCP servers", dashboard?.counts.mcp ?? 0],
   ];
   return (
-    <section className="grid">
-      {cards.map(([label, value]) => (
-        <div className="card" key={label}>
-          <div className="muted">{label}</div>
-          <div className="kpi">{value}</div>
+    <section className="overview-stack">
+      <div className="grid">
+        {cards.map(([label, value]) => (
+          <div className="card" key={label}>
+            <div className="muted">{label}</div>
+            <div className="kpi">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="dashboard-monitoring">
+        <div className="section-subhead">
+          <div>
+            <h2>Monitoring</h2>
+            <p>Execution health and recent workflow activity from the selected n8n instance.</p>
+          </div>
         </div>
-      ))}
+        <Monitoring instanceId={instanceId} />
+      </div>
     </section>
   );
 }
