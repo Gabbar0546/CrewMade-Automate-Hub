@@ -153,11 +153,12 @@ Set these before deployment:
 ```txt
 DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DB_NAME
 SESSION_SECRET=<long random string>
+SESSION_COOKIE_SECURE=false
 CREDENTIAL_ENCRYPTION_KEY=<64 hex characters>
 TRANSFER_WEBHOOK_URL=https://n8n.crewmadeautomate.online/webhook/transfer-submit-to-user
 ```
 
-Keep `SESSION_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` stable after launch. Changing the encryption key will make stored n8n/API secrets unreadable.
+Use `SESSION_COOKIE_SECURE=false` for plain HTTP/IP deployments. Set it to `true` only when the app is behind HTTPS. Keep `SESSION_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` stable after launch. Changing the encryption key will make stored n8n/API secrets unreadable.
 
 ## Database handover
 

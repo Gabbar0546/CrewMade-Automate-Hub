@@ -13,6 +13,12 @@ export type CurrentUser = {
 
 const COOKIE_NAME = "nexus_session";
 
+function secureSessionCookie() {
+  if (process.env.SESSION_COOKIE_SECURE === "false") return false;
+  if (process.env.SESSION_COOKIE_SECURE === "true") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 function sessionSecret() {
   return new TextEncoder().encode(
     process.env.SESSION_SECRET || "dev-only-change-this-secret-before-production",
@@ -33,7 +39,7 @@ export async function setSessionCookie(user: CurrentUser) {
   jar.set(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureSessionCookie(),
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });
