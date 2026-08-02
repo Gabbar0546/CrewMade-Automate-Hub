@@ -21,6 +21,9 @@
   --nav-faint: #94a1aa;
   --nav-active: #e8f7f4;
   --nav-active-text: #10232a;
+  --topbar-bg: rgba(255, 255, 255, 0.88);
+  --sticky-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86), var(--surface));
+  --preview-bg: #f5f5f5;
   --danger: #ef4444;
 }
 
@@ -47,6 +50,9 @@
   --nav-faint: #6f858e;
   --nav-active: #213a41;
   --nav-active-text: #ffffff;
+  --topbar-bg: rgba(18, 32, 38, 0.9);
+  --sticky-bg: linear-gradient(180deg, rgba(18, 32, 38, 0.88), var(--surface));
+  --preview-bg: #17262c;
   --danger: #ff6262;
 }
 
@@ -177,7 +183,7 @@ a {
 
 .notice {
   color: var(--muted);
-  background: #f8fafc;
+  background: var(--soft);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
@@ -383,7 +389,7 @@ a {
 
 .library-topbar {
   height: 76px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--topbar-bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -681,7 +687,7 @@ textarea.input {
   font-size: 14px;
   line-height: 1.45;
   border: 1px solid var(--line);
-  background: #f8fafc;
+  background: var(--soft);
   color: var(--muted);
   margin: 12px 0;
 }
@@ -831,7 +837,7 @@ textarea.input {
   min-height: 420px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 18px;
   line-height: 1.6;
 }
@@ -873,7 +879,7 @@ textarea.input {
   gap: 8px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 9px;
 }
 
@@ -897,7 +903,7 @@ textarea.input {
   border: 1px dashed var(--line-strong);
   border-radius: 9px;
   color: var(--muted);
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 9px 11px;
   font-weight: 800;
 }
@@ -984,7 +990,7 @@ textarea.input {
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 10px;
   cursor: pointer;
 }
@@ -1026,7 +1032,7 @@ textarea.input {
   display: flex;
   gap: 10px;
   border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(255,255,255,0.86), var(--surface));
+  background: var(--sticky-bg);
   padding-top: 12px;
   margin-top: auto;
 }
@@ -1050,7 +1056,7 @@ textarea.input {
   align-items: start;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 12px;
 }
 
@@ -1117,7 +1123,7 @@ textarea.input {
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 9px;
 }
 
@@ -1260,7 +1266,7 @@ textarea.input {
   gap: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fbfcfd;
+  background: var(--soft);
   padding: 14px;
 }
 
@@ -1549,7 +1555,7 @@ textarea.input {
 
 .monitor-table th {
   color: var(--muted);
-  background: #fbfcfd;
+  background: var(--soft);
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -1684,8 +1690,8 @@ textarea.input {
 
 .node-preview {
   position: relative;
-  border: 1px solid #e4e7ec;
-  background: #f5f5f5;
+  border: 1px solid var(--line);
+  background: var(--preview-bg);
   border-radius: 10px;
   padding: 16px;
   height: 292px;
@@ -1736,9 +1742,9 @@ textarea.input {
 }
 
 .lib-node-badge.trigger {
-  background: #fff3f1;
+  background: var(--accent-soft);
   border-color: #ffc8c0;
-  color: #c63a28;
+  color: var(--accent);
 }
 
 .lib-node-icon {
@@ -1750,7 +1756,7 @@ textarea.input {
   justify-content: center;
   flex: 0 0 auto;
   background: var(--soft);
-  border: 1px solid #e4e7ec;
+  border: 1px solid var(--line);
   color: var(--text);
   font-size: 11px;
 }
@@ -1831,7 +1837,7 @@ textarea.input {
 .workflow-actions {
   margin-top: auto;
   padding-top: 17px;
-  border-top: 1px solid #e9edf3;
+  border-top: 1px solid var(--line);
 }
 
 .import-btn {
@@ -1850,7 +1856,7 @@ textarea.input {
   border: 1px solid #ffd4ce;
   border-radius: 9px;
   color: var(--accent);
-  background: #fff4f1;
+  background: var(--accent-soft);
   padding: 0 15px;
   font-size: 17px;
   font-weight: 900;
@@ -1858,7 +1864,7 @@ textarea.input {
 
 .transfer-btn:hover {
   border-color: var(--accent);
-  background: #ffeae5;
+  background: var(--accent-soft);
 }
 
 .preview-btn {
@@ -1981,7 +1987,7 @@ textarea.input {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px;
-  background: #f8fbfc;
+  background: var(--soft);
 }
 
 .transfer-picker-head {
