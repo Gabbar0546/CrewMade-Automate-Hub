@@ -5,12 +5,12 @@ import { requireUser, jsonError } from "@/lib/auth";
 const defaults = {
   welcome: {
     label: "Welcome email",
-    subject: "Welcome to CrewMade Automate Hub",
-    body: "<p>Hello {{username}},</p><p>Your Automate Hub workspace is ready.</p>",
+    subject: "Welcome to Automation Hub",
+    body: "<p>Hello {{username}},</p><p>Your Automation Hub workspace is ready.</p>",
   },
   password_reset: {
     label: "Password reset",
-    subject: "Reset your CrewMade Automate Hub password",
+    subject: "Reset your Automation Hub password",
     body: "<p>Hello {{username}},</p><p>Use this link to reset your password: {{reset_url}}</p>",
   },
   workflow_transfer: {
@@ -20,7 +20,7 @@ const defaults = {
   },
   daily_summary: {
     label: "Daily summary",
-    subject: "CrewMade Automate Hub daily summary",
+    subject: "Automation Hub daily summary",
     body: "<p>Hello {{username}},</p><p>Here is your automation summary for today.</p>",
   },
 };
