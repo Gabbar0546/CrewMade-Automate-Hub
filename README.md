@@ -1,4 +1,4 @@
-# CrewMade Automate Hub
+# Automation Hub
 
 Admin and user portal for managing n8n workflows, executions, credentials, prompts, webhooks, MCP servers, and knowledge-base content.
 
@@ -198,4 +198,4 @@ Before client handover, verify with a safe target user and a disposable or appro
 - Open the transferred user account and confirm only that user's forms/workflows are visible.
 - Grant an internal tool to a user without n8n and confirm the user's form submits to the admin n8n webhook.
 - Test credential mapping plus activation for a workflow that needs OpenAI/Google Sheets credentials.
-- Delete a transferred test workflow from the admin access screen and confirm the n8n workflow and Automate Hub access record are removed.
+- Delete a transferred test workflow from the admin access screen and confirm the n8n workflow and Automation Hub access record are removed.

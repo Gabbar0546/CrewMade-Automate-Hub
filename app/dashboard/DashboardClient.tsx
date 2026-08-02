@@ -244,7 +244,7 @@ const sectionDescriptions: Record<Tab, string> = {
   kb: "Maintain internal articles, SOPs, and automation handover notes.",
   prompts: "Manage reusable prompt assets for AI-assisted workflow modules.",
   forms: "Run database schema-driven forms for transferred workflows and internal tools.",
-  "email-templates": "Prepare transactional and operational email templates for Automate Hub flows.",
+  "email-templates": "Prepare transactional and operational email templates for Automation Hub flows.",
   "api-keys": "Issue, expire, and revoke application-level API access.",
   webhooks: "Configure outbound hooks for workflow alerts and business events.",
   mcp: "Register MCP servers used by automation and assistant workflows.",
@@ -422,7 +422,7 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
       <aside className="library-sidebar">
         <div className="sidebar-head">
           <div>
-            <div className="library-brand">CrewMade Automate Hub</div>
+            <div className="library-brand">Automation Hub</div>
             <div className="brand-subtitle">Automation command center</div>
           </div>
           <button className="collapse-btn" type="button">NX</button>
@@ -455,7 +455,7 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
         <header className="library-topbar">
           <div className="global-search">
             <span>⌕</span>
-            <input placeholder="Search Automate Hub..." />
+            <input placeholder="Search Automation Hub..." />
             <kbd>⌘K</kbd>
           </div>
           <div className="topbar-actions">
@@ -512,7 +512,7 @@ function FeatureBoard({ title, cards }: { title: string; cards: string[] }) {
         <article className="feature-card" key={card}>
           <div className="feature-icon">{index + 1}</div>
           <h3>{card}</h3>
-          <p>Configure this {title.toLowerCase()} capability for your Automate Hub workspace.</p>
+          <p>Configure this {title.toLowerCase()} capability for your Automation Hub workspace.</p>
         </article>
       ))}
     </section>
@@ -576,7 +576,7 @@ function Instances({ instances, onSaved }: { instances: Instance[]; onSaved: () 
   async function deleteInstance(instance: Instance) {
     requestConfirm({
       title: "Delete n8n connection",
-      message: `Delete "${instance.name}" from this Automate Hub workspace? This does not delete anything inside n8n.`,
+      message: `Delete "${instance.name}" from this Automation Hub workspace? This does not delete anything inside n8n.`,
       confirmLabel: "Delete connection",
       danger: true,
       onConfirm: async () => {
@@ -1110,7 +1110,7 @@ function Observability({ instanceId }: { instanceId: string }) {
         <div>
           <span className={dashboard?.n8n.connected ? "obs-state ok" : "obs-state danger"}>{dashboard?.n8n.connected ? "n8n reachable" : "n8n unavailable"}</span>
           <h2>Operational Signals</h2>
-          <p>Live health indicators from Automate Hub records and the selected n8n instance.</p>
+          <p>Live health indicators from Automation Hub records and the selected n8n instance.</p>
         </div>
         <button className="monitor-refresh" type="button" onClick={load}>⟳ Refresh</button>
       </div>
@@ -1994,7 +1994,7 @@ function EmailTemplates() {
           <div className="module-icon alt">P</div>
           <div>
             <h2>Preview</h2>
-            <p>Rendered sample with Automate Hub variables.</p>
+            <p>Rendered sample with Automation Hub variables.</p>
           </div>
         </div>
         <div className="email-preview">
@@ -2008,7 +2008,7 @@ function EmailTemplates() {
 
 function renderTemplate(value: string) {
   return value
-    .replaceAll("{{app_name}}", "CrewMade Automate Hub")
+    .replaceAll("{{app_name}}", "Automation Hub")
     .replaceAll("{{username}}", "Shekhar")
     .replaceAll("{{reset_url}}", "https://nexus.local/reset")
     .replaceAll("{{workflow_name}}", "Template for YouTube transcript")
@@ -2102,7 +2102,7 @@ function ApiKeys() {
             <div className="module-icon">K</div>
             <div>
               <h2>New API Key</h2>
-              <p>Generate keys for programmatic Automate Hub API access.</p>
+              <p>Generate keys for programmatic Automation Hub API access.</p>
             </div>
           </div>
           <label className="field"><span>Name</span><input className="input" name="name" required placeholder="Production sync key" /></label>
@@ -2388,7 +2388,7 @@ function Users() {
   async function deleteCredential(user: UserItem, credential: NonNullable<UserItem["n8n_credentials"]>[number]) {
     requestConfirm({
       title: "Delete user n8n credentials",
-      message: `Delete "${credential.name}" for ${user.name}? The encrypted API key will be removed from Automate Hub.`,
+      message: `Delete "${credential.name}" for ${user.name}? The encrypted API key will be removed from Automation Hub.`,
       confirmLabel: "Delete credentials",
       danger: true,
       onConfirm: async () => {

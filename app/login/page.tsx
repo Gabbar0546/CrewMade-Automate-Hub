@@ -28,7 +28,7 @@ export default function LoginPage() {
   return (
     <main className="auth-page">
       <form className="auth-card" onSubmit={submit}>
-        <div className="brand">CrewMade Automate Hub</div>
+        <div className="brand">Automation Hub</div>
         <p className="muted">Sign in to manage n8n workflows, users, and automation assets.</p>
         <label className="field">
           <span>Email</span>
