@@ -347,16 +347,8 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState("");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [globalSearch, setGlobalSearch] = useState("");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const visibleTabs = useMemo(() => tabs.filter((item) => !item.adminOnly || user.role === "admin"), [user.role]);
-  const globalSearchResults = useMemo(() => {
-    const query = globalSearch.trim().toLowerCase();
-    if (!query) return [];
-    return visibleTabs.filter((item) => {
-      const haystack = `${item.label} ${item.id} ${sectionDescriptions[item.id]}`.toLowerCase();
-      return haystack.includes(query);
-    }).slice(0, 8);
-  }, [globalSearch, visibleTabs]);
 
   async function refreshInstances() {
     const data = await api<{ instances: Instance[] }>("/api/instances");
@@ -375,6 +367,13 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
 
   useEffect(() => {
     refreshInstances().catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("automation-hub-theme");
+    const nextTheme = savedTheme === "dark" ? "dark" : "light";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
   }, []);
 
   useEffect(() => {
@@ -404,7 +403,6 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
 
   function setDashboardTab(nextTab: Tab, replace = false) {
     setTab(nextTab);
-    setGlobalSearch("");
     const url = new URL(window.location.href);
     if (nextTab === "overview") {
       url.searchParams.delete("section");
@@ -422,6 +420,15 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
+  }
+
+  function toggleTheme() {
+    setTheme((current) => {
+      const nextTheme = current === "dark" ? "light" : "dark";
+      window.localStorage.setItem("automation-hub-theme", nextTheme);
+      document.documentElement.dataset.theme = nextTheme;
+      return nextTheme;
+    });
   }
 
   const activeTab = visibleTabs.find((item) => item.id === tab);
@@ -463,30 +470,9 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
 
       <main className="library-main">
         <header className="library-topbar">
-          <div className="global-search">
-            <span>⌕</span>
-            <input
-              value={globalSearch}
-              onChange={(event) => setGlobalSearch(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && globalSearchResults[0]) setDashboardTab(globalSearchResults[0].id);
-                if (event.key === "Escape") setGlobalSearch("");
-              }}
-              placeholder="Search Automation Hub..."
-            />
-            <kbd>⌘K</kbd>
-            {globalSearch && (
-              <div className="global-search-results">
-                {globalSearchResults.map((item) => (
-                  <button key={item.id} type="button" onClick={() => setDashboardTab(item.id)}>
-                    <span className="nav-icon">{item.icon}</span>
-                    <strong>{item.label}</strong>
-                    <small>{sectionDescriptions[item.id]}</small>
-                  </button>
-                ))}
-                {globalSearchResults.length === 0 && <div className="global-search-empty">No sections found.</div>}
-              </div>
-            )}
+          <div className="topbar-context">
+            <strong>{activeTab?.label}</strong>
+            <span>{activeTab ? sectionDescriptions[activeTab.id] : "Automation command center"}</span>
           </div>
           <div className="topbar-actions">
             <select className="instance-select" value={selectedInstance} onChange={(event) => setSelectedInstance(event.target.value)}>
@@ -497,7 +483,9 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
                 </option>
               ))}
             </select>
-            <button className="icon-btn" type="button">☼</button>
+            <button className="icon-btn" type="button" onClick={toggleTheme} title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+              {theme === "dark" ? "☾" : "☼"}
+            </button>
             <button className="icon-btn" type="button">♧</button>
             <div className="topbar-user">
               <strong>{user.name}</strong>
