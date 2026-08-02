@@ -347,7 +347,16 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState("");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [globalSearch, setGlobalSearch] = useState("");
   const visibleTabs = useMemo(() => tabs.filter((item) => !item.adminOnly || user.role === "admin"), [user.role]);
+  const globalSearchResults = useMemo(() => {
+    const query = globalSearch.trim().toLowerCase();
+    if (!query) return [];
+    return visibleTabs.filter((item) => {
+      const haystack = `${item.label} ${item.id} ${sectionDescriptions[item.id]}`.toLowerCase();
+      return haystack.includes(query);
+    }).slice(0, 8);
+  }, [globalSearch, visibleTabs]);
 
   async function refreshInstances() {
     const data = await api<{ instances: Instance[] }>("/api/instances");
@@ -395,6 +404,7 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
 
   function setDashboardTab(nextTab: Tab, replace = false) {
     setTab(nextTab);
+    setGlobalSearch("");
     const url = new URL(window.location.href);
     if (nextTab === "overview") {
       url.searchParams.delete("section");
@@ -455,8 +465,28 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
         <header className="library-topbar">
           <div className="global-search">
             <span>⌕</span>
-            <input placeholder="Search Automation Hub..." />
+            <input
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && globalSearchResults[0]) setDashboardTab(globalSearchResults[0].id);
+                if (event.key === "Escape") setGlobalSearch("");
+              }}
+              placeholder="Search Automation Hub..."
+            />
             <kbd>⌘K</kbd>
+            {globalSearch && (
+              <div className="global-search-results">
+                {globalSearchResults.map((item) => (
+                  <button key={item.id} type="button" onClick={() => setDashboardTab(item.id)}>
+                    <span className="nav-icon">{item.icon}</span>
+                    <strong>{item.label}</strong>
+                    <small>{sectionDescriptions[item.id]}</small>
+                  </button>
+                ))}
+                {globalSearchResults.length === 0 && <div className="global-search-empty">No sections found.</div>}
+              </div>
+            )}
           </div>
           <div className="topbar-actions">
             <select className="instance-select" value={selectedInstance} onChange={(event) => setSelectedInstance(event.target.value)}>
@@ -887,6 +917,7 @@ function Monitoring({ instanceId }: { instanceId: string }) {
   const [autoRefresh, setAutoRefresh] = useState("off");
   const [statusFilter, setStatusFilter] = useState("all");
   const [workflowFilter, setWorkflowFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [view, setView] = useState<"executions" | "workflows">("executions");
 
   async function load() {
@@ -938,12 +969,18 @@ function Monitoring({ instanceId }: { instanceId: string }) {
   }, [executions]);
 
   const filteredExecutions = useMemo(() => {
+    const query = search.trim().toLowerCase();
     return executions.filter((execution) => {
       const status = getExecutionStatus(execution);
       const workflow = getWorkflowName(execution);
-      return (statusFilter === "all" || status === statusFilter) && (workflowFilter === "all" || workflow === workflowFilter);
+      const haystack = `${execution.id || ""} ${workflow} ${status} ${execution.mode || ""} ${execution.workflowId || ""}`.toLowerCase();
+      return (
+        (statusFilter === "all" || status === statusFilter) &&
+        (workflowFilter === "all" || workflow === workflowFilter) &&
+        (!query || haystack.includes(query))
+      );
     });
-  }, [executions, statusFilter, workflowFilter]);
+  }, [executions, statusFilter, workflowFilter, search]);
 
   const history = useMemo(() => buildExecutionHistory(executions), [executions]);
   const chartPoints = history.map((item, index) => `${index * 48},${120 - Math.min(item.total, 6) * 18}`).join(" ");
@@ -1023,6 +1060,10 @@ function Monitoring({ instanceId }: { instanceId: string }) {
       </div>
 
       <div className="monitor-filters">
+        <label className="module-search">
+          <span>⌕</span>
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search executions..." />
+        </label>
         <select className="monitor-select" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
           <option value="all">All Statuses</option>
           <option value="success">Success</option>
@@ -1034,6 +1075,7 @@ function Monitoring({ instanceId }: { instanceId: string }) {
           <option value="all">All Workflows</option>
           {workflowOptions.map((workflow) => <option key={workflow} value={workflow}>{workflow}</option>)}
         </select>
+        <span className="module-count">{filteredExecutions.length} result{filteredExecutions.length === 1 ? "" : "s"}</span>
       </div>
 
       <div className="monitor-table-wrap">
@@ -1054,6 +1096,7 @@ function Monitoring({ instanceId }: { instanceId: string }) {
                 </tr>
               );
             })}
+            {filteredExecutions.length === 0 && <tr><td colSpan={7} className="empty-cell">No executions match this search.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -2232,6 +2275,9 @@ function Users() {
   const [toolAccessDraft, setToolAccessDraft] = useState({ userId: "", sourceWorkflowIds: [] as string[] });
   const [toolSearch, setToolSearch] = useState("");
   const [accessUserSearch, setAccessUserSearch] = useState("");
+  const [credentialUserSearch, setCredentialUserSearch] = useState("");
+  const [workflowAccessSearch, setWorkflowAccessSearch] = useState("");
+  const [usersTableSearch, setUsersTableSearch] = useState("");
   const [accessPage, setAccessPage] = useState(1);
   const [message, setMessage] = useState("");
   const [credentialDraft, setCredentialDraft] = useState({
@@ -2435,6 +2481,28 @@ function Users() {
     const haystack = `${schema.name} ${schema.source_workflow_id} ${schema.action || ""}`.toLowerCase();
     return !toolSearch || haystack.includes(toolSearch.toLowerCase());
   });
+  const userAccounts = useMemo(() => users.filter((user) => user.role === "user"), [users]);
+  const filteredCredentialUsers = useMemo(() => {
+    const query = credentialUserSearch.trim().toLowerCase();
+    if (!query) return userAccounts;
+    return userAccounts.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(query));
+  }, [credentialUserSearch, userAccounts]);
+  const filteredWorkflowAccessUsers = useMemo(() => {
+    const query = workflowAccessSearch.trim().toLowerCase();
+    if (!query) return workflowAccessUsers;
+    return workflowAccessUsers.filter((item) => {
+      const haystack = `${item.user_name} ${item.user_email} ${item.workflows.map((workflow) => `${workflow.workflow_name} ${workflow.source_workflow_id} ${workflow.target_workflow_id} ${workflow.target_base_url}`).join(" ")}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [workflowAccessSearch, workflowAccessUsers]);
+  const filteredUsersTable = useMemo(() => {
+    const query = usersTableSearch.trim().toLowerCase();
+    if (!query) return users;
+    return users.filter((item) => {
+      const haystack = `${item.name} ${item.email} ${item.role} ${item.is_active ? "active" : "disabled"} ${(item.n8n_credentials || []).map((credential) => `${credential.name} ${credential.environment} ${credential.base_url}`).join(" ")}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [usersTableSearch, users]);
   const accessPageSize = 6;
   const filteredInternalToolUsers = internalToolUsers.filter((item) => {
     const haystack = `${item.user_name} ${item.user_email} ${item.tools.map((tool) => tool.name).join(" ")}`.toLowerCase();
@@ -2464,15 +2532,19 @@ function Users() {
 
         <form className="card" onSubmit={saveUserN8nCredentials}>
           <h2>{credentialDraft.credentialId ? "Update user n8n credentials" : "Add user n8n credentials"}</h2>
-          <label className="field">
+          <div className="field">
             <span>User</span>
+            <label className="module-search full-search">
+              <span>⌕</span>
+              <input value={credentialUserSearch} onChange={(event) => setCredentialUserSearch(event.target.value)} placeholder="Search users..." />
+            </label>
             <select className="input" value={credentialDraft.userId} onChange={(event) => setCredentialDraft((draft) => ({ ...draft, userId: event.target.value }))} required disabled={Boolean(credentialDraft.credentialId)}>
               <option value="">Select user</option>
-              {users.filter((user) => user.role === "user").map((user) => (
+              {filteredCredentialUsers.map((user) => (
                 <option key={user.id} value={user.id}>{user.name} - {user.email}</option>
               ))}
             </select>
-          </label>
+          </div>
           <label className="field"><span>Connection name</span><input className="input" value={credentialDraft.connectionName} onChange={(event) => setCredentialDraft((draft) => ({ ...draft, connectionName: event.target.value }))} required placeholder="User production n8n" /></label>
           <label className="field"><span>Environment</span><input className="input" value={credentialDraft.environment} onChange={(event) => setCredentialDraft((draft) => ({ ...draft, environment: event.target.value }))} /></label>
           <label className="field"><span>Base URL</span><input className="input" value={credentialDraft.baseUrl} onChange={(event) => setCredentialDraft((draft) => ({ ...draft, baseUrl: event.target.value }))} type="url" required placeholder="https://n8n.example.com" /></label>
@@ -2508,7 +2580,7 @@ function Users() {
                 required
               >
                 <option value="">Select user</option>
-                {users.filter((user) => user.role === "user").map((user) => (
+                {userAccounts.map((user) => (
                   <option key={user.id} value={user.id}>{user.name} - {user.email}</option>
                 ))}
               </select>
@@ -2581,11 +2653,20 @@ function Users() {
         </div>
       </div>
       <div className="table-card">
-        <h2>User workflow access</h2>
+        <div className="table-card-head">
+          <div>
+            <h2>User workflow access</h2>
+            <p className="muted">{filteredWorkflowAccessUsers.length} user(s)</p>
+          </div>
+          <label className="module-search access-search">
+            <span>⌕</span>
+            <input value={workflowAccessSearch} onChange={(event) => setWorkflowAccessSearch(event.target.value)} placeholder="Search workflow access..." />
+          </label>
+        </div>
         <table className="table access-table">
           <thead><tr><th>User</th><th>Access</th><th>Transferred workflows</th></tr></thead>
           <tbody>
-            {workflowAccessUsers.map((item) => (
+            {filteredWorkflowAccessUsers.map((item) => (
               <tr key={item.user_id}>
                 <td>
                   <strong>{item.user_name}</strong>
@@ -2609,15 +2690,25 @@ function Users() {
                 </td>
               </tr>
             ))}
+            {filteredWorkflowAccessUsers.length === 0 && <tr><td colSpan={3} className="empty-cell">No workflow access records match this search.</td></tr>}
           </tbody>
         </table>
       </div>
       <div className="table-card">
-        <h2>Users</h2>
+        <div className="table-card-head">
+          <div>
+            <h2>Users</h2>
+            <p className="muted">{filteredUsersTable.length} account(s)</p>
+          </div>
+          <label className="module-search access-search">
+            <span>⌕</span>
+            <input value={usersTableSearch} onChange={(event) => setUsersTableSearch(event.target.value)} placeholder="Search users or credentials..." />
+          </label>
+        </div>
         <table className="table">
           <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>User n8n Credentials</th><th>Status</th></tr></thead>
           <tbody>
-            {users.map((item) => (
+            {filteredUsersTable.map((item) => (
               <tr key={item.id}>
                 <td>{item.name}</td>
                 <td>{item.email}</td>
@@ -2644,6 +2735,7 @@ function Users() {
                 <td>{item.is_active ? "Active" : "Disabled"}</td>
               </tr>
             ))}
+            {filteredUsersTable.length === 0 && <tr><td colSpan={5} className="empty-cell">No users match this search.</td></tr>}
           </tbody>
         </table>
       </div>
