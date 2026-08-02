@@ -82,6 +82,44 @@ RUN_TRANSFER=1 npm run smoke
 
 Only run the transfer mutation against a disposable workflow/user pair or a target n8n instance where creating a copy is acceptable.
 
+## Docker server setup
+
+1. Copy the Docker env template:
+
+```bash
+cp .env.docker.example .env
+```
+
+2. Edit `.env` and set strong values:
+
+```bash
+openssl rand -hex 32
+```
+
+Use the generated value for `CREDENTIAL_ENCRYPTION_KEY`. Set `SESSION_SECRET` and `POSTGRES_PASSWORD` to strong private values too.
+
+3. Build and run:
+
+```bash
+docker compose up -d --build
+```
+
+The app container waits for Postgres, runs migrations, then starts Next.js on `APP_PORT` default `3000`.
+
+4. View logs:
+
+```bash
+docker compose logs -f app
+```
+
+5. Stop:
+
+```bash
+docker compose down
+```
+
+Postgres data is stored in the named Docker volume `crewmade_postgres_data`.
+
 ## Production environment
 
 Set these before deployment:

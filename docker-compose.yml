@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crewmade-automate-hub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crewmade_nexus}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - crewmade_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-crewmade_nexus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crewmade-automate-hub-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-crewmade_nexus}
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-session-secret-before-production}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-change-this-to-a-64-character-hex-key-before-production}
+      TRANSFER_WEBHOOK_URL: ${TRANSFER_WEBHOOK_URL:-https://n8n.crewmadeautomate.online/webhook/transfer-submit-to-user}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    command: sh -c "npm run db:migrate && npm run start"
+
+volumes:
+  crewmade_postgres_data:
