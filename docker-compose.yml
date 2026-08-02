@@ -31,6 +31,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-change-this-session-secret-before-production}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-change-this-to-a-64-character-hex-key-before-production}
       TRANSFER_WEBHOOK_URL: ${TRANSFER_WEBHOOK_URL:-https://n8n.crewmadeautomate.online/webhook/transfer-submit-to-user}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@localhost.local}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-change-this-before-production}
     ports:
       - "${APP_PORT:-3000}:3000"
     command: sh -c "npm run db:migrate && npm run start"

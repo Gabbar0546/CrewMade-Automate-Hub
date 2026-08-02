@@ -217,12 +217,14 @@ async function main() {
 
   const existing = await pool.query("SELECT id FROM users LIMIT 1");
   if (existing.rowCount === 0) {
-    const hash = await bcrypt.hash("admin123", 12);
+    const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@localhost.local";
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || "admin123";
+    const hash = await bcrypt.hash(adminPassword, 12);
     await pool.query(
       "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'admin')",
-      ["Admin", "admin@localhost.local", hash],
+      ["Admin", adminEmail, hash],
     );
-    console.log("Seeded admin user: admin@localhost.local / admin123");
+    console.log(`Seeded admin user: ${adminEmail}`);
   }
 
   await runVersionedMigrations();

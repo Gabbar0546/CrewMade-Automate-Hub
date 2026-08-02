@@ -32,11 +32,11 @@ export default function LoginPage() {
         <p className="muted">Sign in to manage n8n workflows, users, and automation assets.</p>
         <label className="field">
           <span>Email</span>
-          <input className="input" type="email" name="email" required defaultValue="admin@localhost.local" />
+          <input className="input" type="email" name="email" required autoComplete="email" placeholder="you@example.com" />
         </label>
         <label className="field">
           <span>Password</span>
-          <input className="input" type="password" name="password" required defaultValue="admin123" />
+          <input className="input" type="password" name="password" required autoComplete="current-password" placeholder="Enter your password" />
         </label>
         <div className="error">{error}</div>
         <button className="btn full" type="submit">Sign in</button>

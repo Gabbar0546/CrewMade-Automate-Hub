@@ -32,14 +32,14 @@ npm run db:migrate
 npm run dev
 ```
 
-The migration seeds:
+For local development, the migration seeds:
 
 ```txt
 Email: admin@localhost.local
 Password: admin123
 ```
 
-Change this admin password before any production use.
+For production, set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` in `.env` before the first migration. The seed password is not shown on the login page or printed in production logs.
 
 ## Current modules
 
