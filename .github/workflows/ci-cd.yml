@@ -61,4 +61,11 @@ jobs:
             git pull --ff-only origin main
             docker compose up -d --build --remove-orphans
             docker compose ps
+            for attempt in $(seq 1 30); do
+              if curl -fsS --resolve app.crewmadeautomate.online:443:127.0.0.1 https://app.crewmadeautomate.online/login >/dev/null; then
+                exit 0
+              fi
+              echo "Waiting for app health check... attempt ${attempt}/30"
+              sleep 2
+            done
             curl -fsS --resolve app.crewmadeautomate.online:443:127.0.0.1 https://app.crewmadeautomate.online/login >/dev/null
