@@ -101,6 +101,7 @@ type UserItem = {
   email: string;
   role: "admin" | "user";
   is_active: boolean;
+  points_balance?: number;
   n8n_instances: number;
   n8n_credentials?: Array<{
     id: number;
@@ -112,6 +113,100 @@ type UserItem = {
     created_at?: string;
   }>;
 };
+
+type MarketplaceWorkflow = {
+  source_workflow_id: string;
+  name: string;
+  action?: string;
+  webhook_url?: string;
+  fields?: WorkflowSchema["fields"];
+  source_payload?: {
+    nodes?: WorkflowNode[];
+    connections?: Record<string, unknown>;
+    active?: boolean;
+    updatedAt?: string;
+    createdAt?: string;
+    tags?: WorkflowTag[];
+  };
+  run_cost: number;
+  transfer_cost: number;
+  target_workflow_id?: string;
+  target_base_url?: string;
+  has_user_n8n?: boolean;
+};
+
+function workflowNodesFromPayload(payload: unknown, fields?: WorkflowSchema["fields"], name?: string): WorkflowNode[] {
+  const candidates = [
+    payload,
+    (payload as { nodes?: unknown })?.nodes,
+    (payload as { workflow?: { nodes?: unknown } })?.workflow?.nodes,
+    (payload as { data?: { nodes?: unknown } })?.data?.nodes,
+    (payload as { json?: { nodes?: unknown } })?.json?.nodes,
+  ];
+  const found = candidates.find((item) => Array.isArray(item)) as WorkflowNode[] | undefined;
+  if (found?.length) return found;
+  const fallbackFields = fields || [];
+  if (fallbackFields.length === 0) return [];
+  const base: WorkflowNode[] = [{ name: name || "Internal Tool", type: "n8n-nodes-base.webhook", position: [0, 0] }];
+  fallbackFields.slice(0, 10).forEach((field, index) => {
+    base.push({
+      name: field.label || field.id,
+      type: field.type === "textarea" ? "n8n-nodes-base.set" : "n8n-nodes-base.form",
+      position: [240 + index * 220, (index % 2) * 150],
+    });
+  });
+  return base;
+}
+
+type PointTransaction = {
+  id: number;
+  user_id?: number;
+  user_name?: string;
+  user_email?: string;
+  workflow_id?: string;
+  workflow_name?: string;
+  action_type: string;
+  points_delta: number;
+  balance_after: number;
+  message?: string;
+  created_at?: string;
+};
+
+type WalletSettings = {
+  payment_name: string;
+  qr_image_url: string;
+  amount_per_point: number;
+  currency: string;
+  instructions: string;
+};
+
+type WalletTopupRequest = {
+  id: number;
+  user_id?: number;
+  user_name?: string;
+  user_email?: string;
+  requested_points: number;
+  amount: number;
+  currency: string;
+  payment_reference: string;
+  status: "pending" | "approved" | "rejected";
+  admin_note?: string;
+  reviewed_at?: string;
+  reviewed_by_name?: string;
+  created_at: string;
+};
+
+type WorkflowPricingRow = {
+  source_workflow_id: string;
+  name: string;
+  action?: string;
+  field_count?: number;
+  run_cost: number;
+  transfer_cost: number;
+  is_visible_to_users: boolean;
+};
+
+type UsersSubTab = "accounts" | "n8n" | "points" | "internal-tools" | "workflow-access";
 
 type WorkflowAccessItem = {
   id: number;
@@ -346,6 +441,8 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   const [instances, setInstances] = useState<Instance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState("");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [walletSummary, setWalletSummary] = useState<{ balance: number; recent?: PointTransaction | null } | null>(null);
+  const [walletOpen, setWalletOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const visibleTabs = useMemo(() => tabs.filter((item) => !item.adminOnly || user.role === "admin"), [user.role]);
 
@@ -362,6 +459,12 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   async function refreshDashboard(instanceId = selectedInstance) {
     const suffix = instanceId ? `?instanceId=${instanceId}` : "";
     setDashboard(await api<DashboardData>(`/api/dashboard${suffix}`));
+  }
+
+  async function refreshWalletSummary() {
+    if (user.role !== "user") return;
+    const data = await api<{ balance: number; transactions: PointTransaction[] }>("/api/user/wallet");
+    setWalletSummary({ balance: data.balance, recent: data.transactions[0] || null });
   }
 
   useEffect(() => {
@@ -399,6 +502,12 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
   useEffect(() => {
     refreshDashboard().catch(console.error);
   }, [selectedInstance]);
+
+  useEffect(() => {
+    if (user.role === "user") {
+      refreshWalletSummary().catch(console.error);
+    }
+  }, [user.role]);
 
   function setDashboardTab(nextTab: Tab, replace = false) {
     setTab(nextTab);
@@ -474,6 +583,11 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
             <span>{activeTab ? sectionDescriptions[activeTab.id] : "Automation command center"}</span>
           </div>
           <div className="topbar-actions">
+            {user.role === "user" && walletSummary && (
+              <button className="topbar-wallet" type="button" onClick={() => setWalletOpen(true)}>
+                <span>{walletSummary.balance} point{walletSummary.balance === 1 ? "" : "s"}</span>
+              </button>
+            )}
             <select className="instance-select" value={selectedInstance} onChange={(event) => setSelectedInstance(event.target.value)}>
               <option value="">No n8n selected</option>
               {instances.map((instance) => (
@@ -502,7 +616,14 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
           )}
           {tab === "overview" && <Overview dashboard={dashboard} instanceId={selectedInstance} />}
           {tab === "instances" && <Instances onSaved={refreshInstances} instances={instances} />}
-          {tab === "workflows" && <Workflows instanceId={selectedInstance} currentUser={user} />}
+          {tab === "workflows" && (
+            <Workflows
+              instanceId={selectedInstance}
+              currentUser={user}
+              onConnectN8n={() => setDashboardTab("instances")}
+              onWalletChange={setWalletSummary}
+            />
+          )}
           {tab === "observability" && <Observability instanceId={selectedInstance} />}
           {tab === "n8n-credentials" && <N8nCredentials instanceId={selectedInstance} />}
           {tab === "credentials" && <SimpleLibrary kind="credential-store" title="Credential Store" />}
@@ -517,6 +638,12 @@ export default function DashboardClient({ initialUser }: { initialUser: CurrentU
           {tab === "users" && user.role === "admin" && <Users />}
         </section>
       </main>
+      {walletOpen && user.role === "user" && (
+        <UserWalletModal
+          onClose={() => setWalletOpen(false)}
+          onChanged={refreshWalletSummary}
+        />
+      )}
     </div>
   );
 }
@@ -655,7 +782,153 @@ function Instances({ instances, onSaved }: { instances: Instance[]; onSaved: () 
   );
 }
 
-function Workflows({ instanceId, currentUser }: { instanceId: string; currentUser: CurrentUser }) {
+function UserWalletModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const [balance, setBalance] = useState(0);
+  const [settings, setSettings] = useState<WalletSettings | null>(null);
+  const [requests, setRequests] = useState<WalletTopupRequest[]>([]);
+  const [transactions, setTransactions] = useState<PointTransaction[]>([]);
+  const [points, setPoints] = useState(10);
+  const [paymentReference, setPaymentReference] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const data = await api<{
+      balance: number;
+      settings: WalletSettings;
+      requests: WalletTopupRequest[];
+      transactions: PointTransaction[];
+    }>("/api/user/wallet");
+    setBalance(data.balance);
+    setSettings(data.settings);
+    setRequests(data.requests);
+    setTransactions(data.transactions);
+  }
+
+  useEffect(() => {
+    load().catch((error) => setMessage(error instanceof Error ? error.message : "Could not load wallet"));
+  }, []);
+
+  const amount = Number(((settings?.amount_per_point || 0) * Math.max(0, points || 0)).toFixed(2));
+  const recentExpense = transactions.find((item) => item.points_delta < 0);
+  const lastPurchase = requests.find((item) => item.status === "approved");
+
+  async function submitTopup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setBusy(true);
+    try {
+      await api("/api/user/wallet", {
+        method: "POST",
+        body: JSON.stringify({ points, paymentReference }),
+      });
+      setPaymentReference("");
+      setMessage("Top-up request submitted. Admin will approve it after payment verification.");
+      pushToast("Top-up request submitted.", "success");
+      await load();
+      await onChanged();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not submit top-up request";
+      setMessage(text);
+      pushToast(text, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="library-modal-backdrop" onClick={onClose}>
+      <div className="transfer-modal wallet-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-titlebar">
+          <div className="modal-title-copy">
+            <span className="modal-eyebrow run">Wallet</span>
+            <h2>{balance} point{balance === 1 ? "" : "s"}</h2>
+          </div>
+          <button className="close-btn" type="button" onClick={onClose} aria-label="Close wallet">×</button>
+        </div>
+        <div className="paid-modal-body">
+          <div className="wallet-stat-grid">
+            <div>
+              <small>Recent expense</small>
+              <strong>{recentExpense ? `${recentExpense.points_delta} pts` : "None"}</strong>
+              <span>{recentExpense?.message || "No spending yet"}</span>
+            </div>
+            <div>
+              <small>Last purchase</small>
+              <strong>{lastPurchase ? `+${lastPurchase.requested_points} pts` : "None"}</strong>
+              <span>{lastPurchase ? `${lastPurchase.currency} ${lastPurchase.amount}` : "No approved top-up"}</span>
+            </div>
+            <div>
+              <small>Pending requests</small>
+              <strong>{requests.filter((item) => item.status === "pending").length}</strong>
+              <span>Awaiting admin approval</span>
+            </div>
+          </div>
+
+          <form className="wallet-topup-grid" onSubmit={submitTopup}>
+            <div className="wallet-payment-card">
+              <strong>{settings?.payment_name || "Payment"}</strong>
+              {settings?.qr_image_url ? (
+                <img src={settings.qr_image_url} alt={`${settings.payment_name} QR`} />
+              ) : (
+                <div className="qr-placeholder">
+                  <span>QR</span>
+                  <small>{settings?.payment_name || "Payment"}</small>
+                </div>
+              )}
+              <p>{settings?.instructions || "Scan the QR and submit your payment reference number."}</p>
+            </div>
+            <div className="wallet-topup-form">
+              <label className="field">
+                <span>Add tokens</span>
+                <input className="input" type="number" min={1} value={points} onChange={(event) => setPoints(Number(event.target.value))} />
+              </label>
+              <div className="amount-preview">
+                <span>Amount to pay</span>
+                <strong>{settings?.currency || "INR"} {amount}</strong>
+                <small>{settings?.currency || "INR"} {settings?.amount_per_point ?? 1} per point</small>
+              </div>
+              <label className="field">
+                <span>Payment reference / transfer ID</span>
+                <input className="input" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} required placeholder="UPI reference, transaction ID, or bank transfer ID" />
+              </label>
+              {message && <div className="notice">{message}</div>}
+              <button className="btn success" type="submit" disabled={busy || points <= 0}>{busy ? "Submitting..." : "Submit top-up request"}</button>
+            </div>
+          </form>
+
+          <div className="wallet-request-list">
+            <strong>Recent requests</strong>
+            {requests.slice(0, 5).map((request) => (
+              <div className="wallet-request-row" key={request.id}>
+                <span><strong>+{request.requested_points} pts</strong><small>{request.payment_reference}</small></span>
+                <span>{request.currency} {request.amount}</span>
+                <span className={request.status === "approved" ? "pill ok" : request.status === "rejected" ? "pill warn" : "pill"}>{titleCase(request.status)}</span>
+              </div>
+            ))}
+            {requests.length === 0 && <div className="empty-card compact-empty">No top-up requests yet.</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Workflows({
+  instanceId,
+  currentUser,
+  onConnectN8n,
+  onWalletChange,
+}: {
+  instanceId: string;
+  currentUser: CurrentUser;
+  onConnectN8n: () => void;
+  onWalletChange?: (summary: { balance: number; recent?: PointTransaction | null }) => void;
+}) {
+  if (currentUser.role === "user") {
+    return <UserWorkflowMarketplace instanceId={instanceId} onConnectN8n={onConnectN8n} onWalletChange={onWalletChange} />;
+  }
+
   const [rows, setRows] = useState<Workflow[]>([]);
   const [preview, setPreview] = useState<Workflow | null>(null);
   const [transferWorkflow, setTransferWorkflow] = useState<Workflow | null>(null);
@@ -764,7 +1037,7 @@ function WorkflowCard({
   return (
     <article className="workflow-card">
       <button className="node-preview" onClick={onPreview} aria-label={`Preview ${workflow.name || "workflow"}`}>
-        <LibraryNodeFlow nodes={nodes.slice(0, 12)} onClick={onPreview} />
+        <LibraryNodeFlow nodes={nodes} maxShow={24} onClick={onPreview} />
       </button>
       <div className="workflow-head">
         <h3>{workflow.name || "Untitled workflow"}</h3>
@@ -904,6 +1177,347 @@ function TransferWorkflowModal({
           <button className="btn success" onClick={submit} disabled={busy || selected.length === 0}>{busy ? "Transferring..." : `Transfer to ${selected.length} user(s)`}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function UserWorkflowMarketplace({
+  instanceId,
+  onConnectN8n,
+  onWalletChange,
+}: {
+  instanceId: string;
+  onConnectN8n: () => void;
+  onWalletChange?: (summary: { balance: number; recent?: PointTransaction | null }) => void;
+}) {
+  const [workflows, setWorkflows] = useState<MarketplaceWorkflow[]>([]);
+  const [ownWorkflows, setOwnWorkflows] = useState<Workflow[]>([]);
+  const [transactions, setTransactions] = useState<PointTransaction[]>([]);
+  const [balance, setBalance] = useState(0);
+  const [selected, setSelected] = useState<MarketplaceWorkflow | null>(null);
+  const [action, setAction] = useState<"run" | "transfer">("run");
+  const [search, setSearch] = useState("");
+  const [message, setMessage] = useState("");
+  const [ownMessage, setOwnMessage] = useState("");
+  const [view, setView] = useState<"library" | "own">("library");
+  const [ownPreview, setOwnPreview] = useState<Workflow | null>(null);
+
+  async function loadMarketplace() {
+    setMessage("");
+    try {
+      const data = await api<{ balance: number; workflows: MarketplaceWorkflow[]; transactions: PointTransaction[] }>("/api/user/workflow-marketplace");
+      setBalance(data.balance);
+      setWorkflows(data.workflows);
+      setTransactions(data.transactions);
+      onWalletChange?.({ balance: data.balance, recent: data.transactions[0] || null });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load workflow marketplace");
+    }
+  }
+
+  async function loadOwnWorkflows() {
+    setOwnMessage("");
+    if (!instanceId) {
+      setOwnWorkflows([]);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ instanceId });
+      const data = await api<{ data?: Workflow[] }>(`/api/n8n/workflows?${params.toString()}`);
+      setOwnWorkflows(data.data || []);
+    } catch (error) {
+      setOwnMessage(error instanceof Error ? error.message : "Could not load your n8n workflows");
+    }
+  }
+
+  useEffect(() => {
+    loadMarketplace().catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (view === "own") {
+      loadOwnWorkflows().catch(console.error);
+    }
+  }, [view, instanceId]);
+
+  const filtered = workflows.filter((workflow) => {
+    const haystack = `${workflow.name} ${workflow.source_workflow_id} ${workflow.action || ""}`.toLowerCase();
+    return !search || haystack.includes(search.toLowerCase());
+  });
+
+  const filteredOwnWorkflows = ownWorkflows.filter((workflow) => {
+    const haystack = `${workflow.name || ""} ${workflow.id}`.toLowerCase();
+    return !search || haystack.includes(search.toLowerCase());
+  });
+
+  function openAction(workflow: MarketplaceWorkflow, nextAction: "run" | "transfer") {
+    setSelected(workflow);
+    setAction(nextAction);
+  }
+
+  return (
+    <section className="workflow-page">
+      <div className="section-tabs">
+        <button className={view === "library" ? "section-tab active" : "section-tab"} type="button" onClick={() => setView("library")}>Admin Library</button>
+        <button className={view === "own" ? "section-tab active" : "section-tab"} type="button" onClick={() => setView("own")}>My n8n Workflows</button>
+      </div>
+
+      <div className="workflow-controls">
+        <div className="workflow-search">
+          <span>⌕</span>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={view === "library" ? "Search available workflows..." : "Search your n8n workflows..."}
+          />
+        </div>
+        <span className="workflow-count">{view === "library" ? filtered.length : filteredOwnWorkflows.length} workflows</span>
+        <button className="library-btn" onClick={view === "library" ? loadMarketplace : loadOwnWorkflows}>Refresh</button>
+      </div>
+      {view === "library" && message && <div className="notice">{message}</div>}
+      {view === "own" && ownMessage && <div className="notice">{ownMessage}</div>}
+      {view === "library" && (
+        <div className="workflow-grid">
+          {filtered.map((workflow) => {
+            const nodes = workflowNodesFromPayload(workflow.source_payload, workflow.fields, workflow.name);
+            return (
+              <article className="workflow-card" key={workflow.source_workflow_id}>
+                <button className="node-preview" type="button" onClick={() => openAction(workflow, "run")} aria-label={`Open ${workflow.name}`}>
+                  <LibraryNodeFlow nodes={nodes} maxShow={24} onClick={() => openAction(workflow, "run")} />
+                </button>
+                <div className="workflow-head">
+                  <h3>{workflow.name}</h3>
+                  {workflow.target_workflow_id ? <span className="pill ok">Transferred</span> : <span className="pill">Available</span>}
+                </div>
+                <div className="muted">{nodes.length} node{nodes.length === 1 ? "" : "s"} · {workflow.fields?.length || 0} field(s)</div>
+                <div className="price-row">
+                  <span>Run: {workflow.run_cost} pts</span>
+                  <span>Transfer: {workflow.transfer_cost} pts</span>
+                </div>
+                <div className="workflow-actions">
+                  <button className="import-btn" type="button" onClick={() => openAction(workflow, "run")}>Internal Tool</button>
+                  <button className="transfer-btn" type="button" onClick={() => openAction(workflow, "transfer")} disabled={Boolean(workflow.target_workflow_id)}>
+                    {workflow.target_workflow_id ? "Transferred" : "Transfer"}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      {view === "own" && !instanceId && (
+        <div className="empty-card">
+          Connect your n8n instance first to view workflows from your own workspace.
+          <button className="library-btn" type="button" onClick={onConnectN8n}>Connect n8n</button>
+        </div>
+      )}
+      {view === "own" && instanceId && (
+        <div className="workflow-grid">
+          {filteredOwnWorkflows.map((workflow) => {
+            const nodes = workflow.nodes || [];
+            return (
+              <article className="workflow-card" key={String(workflow.id)}>
+                <button className="node-preview" type="button" onClick={() => setOwnPreview(workflow)} aria-label={`Preview ${workflow.name || "workflow"}`}>
+                  <LibraryNodeFlow nodes={nodes} maxShow={24} onClick={() => setOwnPreview(workflow)} />
+                </button>
+                <div className="workflow-head">
+                  <h3>{workflow.name || "Untitled workflow"}</h3>
+                  {workflow.active ? <span className="pill ok">Active</span> : <span className="pill warn">Inactive</span>}
+                </div>
+                <div className="muted">{nodes.length} node{nodes.length === 1 ? "" : "s"} · Updated {formatDate(workflow.updatedAt || workflow.createdAt)}</div>
+                <div className="workflow-actions">
+                  <button className="preview-btn" type="button" onClick={() => setOwnPreview(workflow)}>Preview</button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      {view === "library" && filtered.length === 0 && <div className="empty-card">No admin workflows are available yet.</div>}
+      {view === "own" && instanceId && filteredOwnWorkflows.length === 0 && <div className="empty-card">No workflows found in your selected n8n instance.</div>}
+      {selected && (
+        <PaidWorkflowActionModal
+          workflow={selected}
+          action={action}
+          balance={balance}
+          onConnectN8n={onConnectN8n}
+          onClose={() => setSelected(null)}
+          onDone={loadMarketplace}
+        />
+      )}
+      {ownPreview && (
+        <LibraryPreviewModal
+          title={ownPreview.name || "Workflow preview"}
+          workflowData={{ nodes: ownPreview.nodes || [], connections: ownPreview.connections || {} }}
+          onClose={() => setOwnPreview(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+function PaidWorkflowActionModal({
+  workflow,
+  action,
+  balance,
+  onConnectN8n,
+  onClose,
+  onDone,
+}: {
+  workflow: MarketplaceWorkflow;
+  action: "run" | "transfer";
+  balance: number;
+  onConnectN8n: () => void;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [name, setName] = useState("");
+  const [activate, setActivate] = useState(false);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const cost = action === "run" ? workflow.run_cost : workflow.transfer_cost;
+  const canAfford = balance >= cost;
+  const needsConnectionForTransfer = action === "transfer" && !workflow.has_user_n8n;
+  const showNoN8nChoice = action === "run" && !workflow.has_user_n8n;
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    (workflow.fields || []).forEach((field) => {
+      next[field.id] = field.defaultValue !== undefined ? String(field.defaultValue) : "";
+    });
+    setValues(next);
+  }, [workflow.source_workflow_id]);
+
+  function renderField(field: NonNullable<WorkflowSchema["fields"]>[number]) {
+    const commonProps = {
+      className: "input",
+      value: values[field.id] || "",
+      placeholder: field.placeholder || "",
+      required: Boolean(field.required),
+      onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setValues((current) => ({ ...current, [field.id]: event.target.value })),
+    };
+    if (field.type === "textarea") return <textarea {...commonProps} rows={4} />;
+    if (field.type === "select" && field.options?.length) {
+      return (
+        <select {...commonProps}>
+          <option value="">Select {field.label}</option>
+          {field.options.map((option) => {
+            const label = typeof option === "string" ? option : option.label;
+            const value = typeof option === "string" ? option : String(option.value);
+            return <option key={value} value={value}>{label}</option>;
+          })}
+        </select>
+      );
+    }
+    return <input {...commonProps} type={field.type || "text"} min={field.min} max={field.max} />;
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canAfford) return setMessage(`You need ${cost} points for this action.`);
+    setBusy(true);
+    setMessage("");
+    try {
+      const endpoint = action === "run" ? "/api/user/workflow-actions/run" : "/api/user/workflow-actions/transfer";
+      const result = await api<{ balance?: number; pointsSpent?: number; skipped?: boolean; warning?: string; response?: unknown; message?: string }>(endpoint, {
+        method: "POST",
+        body: JSON.stringify({
+          sourceWorkflowId: workflow.source_workflow_id,
+          values,
+          name: name || undefined,
+          activate,
+        }),
+      });
+      const text = result.skipped
+        ? result.message || "Workflow already transferred. No points spent."
+        : `${action === "run" ? "Workflow executed" : "Workflow transferred"}. Spent ${result.pointsSpent || cost} point(s).`;
+      setMessage(result.warning || text);
+      pushToast(result.warning || text, result.warning ? "info" : "success");
+      await onDone();
+      window.setTimeout(onClose, 900);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Action failed";
+      setMessage(text);
+      pushToast(text, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="library-modal-backdrop" onClick={onClose}>
+      <form className="transfer-modal paid-action-modal" onSubmit={submit} onClick={(event) => event.stopPropagation()}>
+        <div className="modal-titlebar">
+          <div className="modal-title-copy">
+            <span className={action === "run" ? "modal-eyebrow run" : "modal-eyebrow transfer"}>{action === "run" ? "Internal tool" : "Workflow transfer"}</span>
+            <h2>{workflow.name}</h2>
+          </div>
+          <button className="close-btn" type="button" onClick={onClose} aria-label="Close modal">×</button>
+        </div>
+        <div className="paid-modal-body">
+          <div className="token-summary">
+            <span><small>Current balance</small><strong>{balance}</strong></span>
+            <span><small>Action cost</small><strong>{cost}</strong></span>
+            <span><small>After action</small><strong>{Math.max(0, balance - cost)}</strong></span>
+          </div>
+          <div className="modal-action-note">
+            <strong>{action === "run" ? "Run on admin n8n" : "Copy to your n8n"}</strong>
+            <p>
+              {action === "run"
+                ? "This tool will execute on the admin n8n instance. Points are deducted only after a successful run."
+                : "This workflow will be transferred through the configured n8n transfer webhook. Points are deducted only after a successful transfer."}
+            </p>
+          </div>
+          {showNoN8nChoice && (
+            <div className="n8n-choice-panel">
+              <div>
+                <strong>No personal n8n connected</strong>
+                <p>You can run this on the admin n8n now, or connect your own n8n for transfers later.</p>
+              </div>
+              <div className="n8n-choice-actions">
+                <button className="btn secondary" type="button" onClick={() => { onClose(); onConnectN8n(); }}>Connect my n8n</button>
+                <span className="pill ok">Admin run available</span>
+              </div>
+            </div>
+          )}
+          {action === "run" && (
+            <div className="paid-field-list">
+              {(workflow.fields || []).map((field) => (
+                <label className="field" key={field.id}>
+                  <span>{field.label}{field.required ? " *" : ""}</span>
+                  {renderField(field)}
+                  {field.helpText && <small className="field-help">{field.helpText}</small>}
+                </label>
+              ))}
+              {(workflow.fields || []).length === 0 && <div className="empty-card compact-empty">This workflow has no input fields.</div>}
+            </div>
+          )}
+          {action === "transfer" && (
+            <div className="paid-field-list">
+              <label className="field"><span>New workflow name optional</span><input className="input" value={name} onChange={(event) => setName(event.target.value)} placeholder={`${workflow.name} - copy`} /></label>
+              <label className="modal-check-row"><input type="checkbox" checked={activate} onChange={(event) => setActivate(event.target.checked)} /> <span>Activate after transfer</span></label>
+              {!workflow.has_user_n8n && (
+                <div className="n8n-choice-panel danger-panel">
+                  <div>
+                    <strong>Connect your n8n before transfer</strong>
+                    <p>Workflow transfer needs your n8n base URL and API key. After connecting, this workflow can be copied using points.</p>
+                  </div>
+                  <button className="btn" type="button" onClick={() => { onClose(); onConnectN8n(); }}>Connect n8n now</button>
+                </div>
+              )}
+            </div>
+          )}
+          {message && <div className={`form-status ${message.toLowerCase().includes("not enough") || message.toLowerCase().includes("failed") ? "err" : "ok"}`}>{message}</div>}
+          {!canAfford && <div className="form-status err">Insufficient points for this action.</div>}
+        </div>
+        <div className="paid-modal-footer">
+          <button className="btn secondary" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn success" type="submit" disabled={busy || !canAfford || needsConnectionForTransfer || (action === "transfer" && Boolean(workflow.target_workflow_id))}>
+            {busy ? "Processing..." : action === "run" ? `Run for ${cost} point(s)` : `Transfer for ${cost} point(s)`}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -2039,7 +2653,7 @@ function EmailTemplates() {
         </div>
         <div className="email-preview">
           <strong>{renderTemplate(subject)}</strong>
-          <div dangerouslySetInnerHTML={{ __html: renderTemplate(body) }} />
+          <div dangerouslySetInnerHTML={{ __html: sanitizeTemplateHtml(renderTemplate(body)) }} />
         </div>
       </div>
     </section>
@@ -2053,6 +2667,14 @@ function renderTemplate(value: string) {
     .replaceAll("{{reset_url}}", "https://nexus.local/reset")
     .replaceAll("{{workflow_name}}", "Template for YouTube transcript")
     .replaceAll("{{primary_color}}", "#10a7a7");
+}
+
+function sanitizeTemplateHtml(value: string) {
+  return value
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, " $1=\"#\"")
+    .replace(/\s+(href|src)\s*=\s*javascript:[^\s>]+/gi, " $1=\"#\"");
 }
 
 type ApiKeyRow = {
@@ -2264,7 +2886,321 @@ function shortNodeName(value: string) {
   return cleaned.length > 16 ? `${cleaned.slice(0, 14)}...` : cleaned;
 }
 
+function PointsAndPricingAdmin({ onChanged }: { onChanged: () => void }) {
+  const [walletUsers, setWalletUsers] = useState<UserItem[]>([]);
+  const [transactions, setTransactions] = useState<PointTransaction[]>([]);
+  const [pricingRows, setPricingRows] = useState<WorkflowPricingRow[]>([]);
+  const [userId, setUserId] = useState("");
+  const [points, setPoints] = useState(10);
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"info" | "error">("info");
+  const [pricingSearch, setPricingSearch] = useState("");
+  const [pointSearch, setPointSearch] = useState("");
+  const [paymentSettings, setPaymentSettings] = useState<WalletSettings>({
+    payment_name: "Payment",
+    qr_image_url: "",
+    amount_per_point: 1,
+    currency: "INR",
+    instructions: "Scan the QR and submit your payment reference number.",
+  });
+  const [topupRequests, setTopupRequests] = useState<WalletTopupRequest[]>([]);
+
+  async function loadPoints() {
+    const data = await api<{ users: UserItem[]; transactions: PointTransaction[] }>("/api/admin/points");
+    setWalletUsers(data.users.filter((user) => user.role === "user"));
+    setTransactions(data.transactions);
+  }
+
+  async function loadWalletAdmin() {
+    const data = await api<{ settings: WalletSettings; requests: WalletTopupRequest[] }>("/api/admin/wallet");
+    setPaymentSettings(data.settings);
+    setTopupRequests(data.requests);
+  }
+
+  async function loadPricing() {
+    const data = await api<{ workflows: WorkflowPricingRow[] }>("/api/admin/workflow-pricing");
+    setPricingRows(data.workflows);
+  }
+
+  useEffect(() => {
+    loadPoints().catch(console.error);
+    loadWalletAdmin().catch(console.error);
+    loadPricing().catch(console.error);
+  }, []);
+
+  async function adjustPoints(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setMessageTone("info");
+    try {
+      const selectedUser = walletUsers.find((item) => String(item.id) === userId);
+      await api("/api/admin/points", {
+        method: "POST",
+        body: JSON.stringify({ userId: Number(userId), points, message: points > 0 ? "Admin added points" : "Admin removed points" }),
+      });
+      const text = `${points > 0 ? "Added" : "Removed"} ${Math.abs(points)} point(s) ${selectedUser ? `for ${selectedUser.name}` : ""}.`;
+      setMessageTone("info");
+      setMessage(text);
+      pushToast(text, "success");
+      await loadPoints();
+      onChanged();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not adjust points";
+      setMessageTone("error");
+      setMessage(text);
+      pushToast(text, "error");
+    }
+  }
+
+  async function savePricing(row: WorkflowPricingRow) {
+    setMessage("");
+    setMessageTone("info");
+    try {
+      await api("/api/admin/workflow-pricing", {
+        method: "POST",
+        body: JSON.stringify({
+          sourceWorkflowId: row.source_workflow_id,
+          runCost: Number(row.run_cost),
+          transferCost: Number(row.transfer_cost),
+          isVisibleToUsers: Boolean(row.is_visible_to_users),
+        }),
+      });
+      const text = `Pricing saved for ${row.name}.`;
+      setMessageTone("info");
+      setMessage(text);
+      pushToast(text, "success");
+      await loadPricing();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not save workflow pricing";
+      setMessageTone("error");
+      setMessage(text);
+      pushToast(text, "error");
+    }
+  }
+
+  async function savePaymentSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setMessageTone("info");
+    try {
+      await api("/api/admin/wallet", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "settings",
+          paymentName: paymentSettings.payment_name,
+          qrImageUrl: paymentSettings.qr_image_url,
+          amountPerPoint: Number(paymentSettings.amount_per_point),
+          currency: paymentSettings.currency,
+          instructions: paymentSettings.instructions,
+        }),
+      });
+      setMessageTone("info");
+      setMessage("Payment QR settings saved.");
+      pushToast("Payment QR settings saved.", "success");
+      await loadWalletAdmin();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not save payment settings";
+      setMessageTone("error");
+      setMessage(text);
+      pushToast(text, "error");
+    }
+  }
+
+  async function reviewTopup(requestId: number, action: "approve" | "reject") {
+    setMessage("");
+    setMessageTone("info");
+    try {
+      await api("/api/admin/wallet", {
+        method: "POST",
+        body: JSON.stringify({ action, requestId }),
+      });
+      const text = `Top-up request ${action === "approve" ? "approved" : "rejected"}.`;
+      setMessageTone("info");
+      setMessage(text);
+      pushToast(text, action === "approve" ? "success" : "info");
+      await loadWalletAdmin();
+      await loadPoints();
+      onChanged();
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Could not review top-up request";
+      setMessageTone("error");
+      setMessage(text);
+      pushToast(text, "error");
+    }
+  }
+
+  const filteredWalletUsers = walletUsers.filter((user) => `${user.name} ${user.email}`.toLowerCase().includes(pointSearch.toLowerCase()));
+  const filteredPricing = pricingRows.filter((row) => `${row.name} ${row.source_workflow_id} ${row.action || ""}`.toLowerCase().includes(pricingSearch.toLowerCase()));
+  const visiblePricingCount = pricingRows.filter((row) => row.is_visible_to_users).length;
+  const avgRunCost = pricingRows.length ? Math.round(pricingRows.reduce((sum, row) => sum + Number(row.run_cost || 0), 0) / pricingRows.length) : 0;
+  const avgTransferCost = pricingRows.length ? Math.round(pricingRows.reduce((sum, row) => sum + Number(row.transfer_cost || 0), 0) / pricingRows.length) : 0;
+
+  return (
+    <div className="wallet-admin-grid">
+      <form className="card" onSubmit={savePaymentSettings}>
+        <div className="access-card-head">
+          <div>
+            <h2>Payment QR</h2>
+            <p className="muted">Set token price and QR details shown to users.</p>
+          </div>
+        </div>
+        <label className="field"><span>Payment name</span><input className="input" value={paymentSettings.payment_name} onChange={(event) => setPaymentSettings((current) => ({ ...current, payment_name: event.target.value }))} placeholder="Payment" /></label>
+        <label className="field"><span>QR image URL optional</span><input className="input" value={paymentSettings.qr_image_url} onChange={(event) => setPaymentSettings((current) => ({ ...current, qr_image_url: event.target.value }))} placeholder="https://..." /></label>
+        <div className="two-inline-fields">
+          <label className="field"><span>Amount per token</span><input className="input" type="number" min={0} step="0.01" value={paymentSettings.amount_per_point} onChange={(event) => setPaymentSettings((current) => ({ ...current, amount_per_point: Number(event.target.value) }))} /></label>
+          <label className="field"><span>Currency</span><input className="input" value={paymentSettings.currency} onChange={(event) => setPaymentSettings((current) => ({ ...current, currency: event.target.value }))} /></label>
+        </div>
+        <label className="field"><span>Instructions</span><textarea className="input" rows={3} value={paymentSettings.instructions} onChange={(event) => setPaymentSettings((current) => ({ ...current, instructions: event.target.value }))} /></label>
+        <div className="wallet-payment-preview">
+          {paymentSettings.qr_image_url ? <img src={paymentSettings.qr_image_url} alt={`${paymentSettings.payment_name} QR preview`} /> : <div className="qr-placeholder small-qr"><span>QR</span><small>{paymentSettings.payment_name || "Payment"}</small></div>}
+          <span>{paymentSettings.currency} {paymentSettings.amount_per_point || 0} per token</span>
+        </div>
+        <button className="btn" type="submit">Save payment setup</button>
+      </form>
+
+      <form className="card" onSubmit={adjustPoints}>
+        <div className="access-card-head">
+          <div>
+            <h2>User points</h2>
+            <p className="muted">Add or remove points from user wallets.</p>
+          </div>
+        </div>
+        <label className="module-search full-search">
+          <span>⌕</span>
+          <input value={pointSearch} onChange={(event) => setPointSearch(event.target.value)} placeholder="Search users..." />
+        </label>
+        <label className="field">
+          <span>User</span>
+          <select className="input" value={userId} onChange={(event) => setUserId(event.target.value)} required>
+            <option value="">Select user</option>
+            {filteredWalletUsers.map((user) => (
+              <option key={user.id} value={user.id}>{user.name} - {user.email} ({user.points_balance || 0} pts)</option>
+            ))}
+          </select>
+        </label>
+        <label className="field"><span>Points adjustment</span><input className="input" type="number" value={points} onChange={(event) => setPoints(Number(event.target.value))} /></label>
+        <div className="toolbar">
+          <button className="btn" type="submit" disabled={!userId || points === 0}>Save points</button>
+          <button className="btn secondary" type="button" onClick={() => setPoints(-5)}>Remove 5</button>
+        </div>
+        {message && <div className={messageTone === "error" ? "error" : "notice"}>{message}</div>}
+        <div className="wallet-mini-list">
+          {filteredWalletUsers.slice(0, 6).map((user) => (
+            <span key={user.id}><strong>{user.name}</strong> {user.points_balance || 0} pts</span>
+          ))}
+        </div>
+      </form>
+
+      <div className="table-card transaction-card">
+        <div className="table-card-head">
+          <div>
+            <h2>Top-up approvals</h2>
+            <p className="muted">{topupRequests.filter((item) => item.status === "pending").length} pending request(s)</p>
+          </div>
+          <button className="table-action" type="button" onClick={loadWalletAdmin}>Refresh</button>
+        </div>
+        <table className="table">
+          <thead><tr><th>User</th><th>Tokens</th><th>Amount</th><th>Reference</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {topupRequests.slice(0, 10).map((request) => (
+              <tr key={request.id}>
+                <td><strong>{request.user_name || "User"}</strong><small>{request.user_email || ""}</small></td>
+                <td>+{request.requested_points}</td>
+                <td>{request.currency} {request.amount}</td>
+                <td><code>{request.payment_reference}</code></td>
+                <td><span className={request.status === "approved" ? "pill ok" : request.status === "rejected" ? "pill warn" : "pill"}>{titleCase(request.status)}</span></td>
+                <td>
+                  {request.status === "pending" ? (
+                    <div className="toolbar">
+                      <button className="approval-btn approve" type="button" onClick={() => reviewTopup(request.id, "approve")}>Approve</button>
+                      <button className="approval-btn reject" type="button" onClick={() => reviewTopup(request.id, "reject")}>Reject</button>
+                    </div>
+                  ) : (
+                    <small>{request.reviewed_by_name || "Reviewed"}</small>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {topupRequests.length === 0 && <tr><td colSpan={6} className="empty-cell">No top-up requests yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="pricing-workspace">
+        <div className="pricing-workspace-head">
+          <div>
+            <h2>Workflow pricing</h2>
+            <p className="muted">Set user-facing run and transfer costs for every available internal tool.</p>
+          </div>
+          <div className="pricing-summary-strip">
+            <span><strong>{pricingRows.length}</strong> workflows</span>
+            <span><strong>{visiblePricingCount}</strong> visible</span>
+            <span><strong>{avgRunCost}</strong> avg run</span>
+            <span><strong>{avgTransferCost}</strong> avg transfer</span>
+          </div>
+        </div>
+
+        <div className="pricing-toolbar">
+          <label className="module-search pricing-search">
+            <span>⌕</span>
+            <input value={pricingSearch} onChange={(event) => setPricingSearch(event.target.value)} placeholder="Search by workflow name, ID, or action..." />
+          </label>
+          <span className="module-count">{filteredPricing.length} shown</span>
+        </div>
+
+        <div className="pricing-table">
+          <div className="pricing-table-header">
+            <span>Workflow</span>
+            <span>Run cost</span>
+            <span>Transfer cost</span>
+            <span>Visibility</span>
+            <span>Action</span>
+          </div>
+          {filteredPricing.map((row) => (
+            <div className="pricing-row" key={row.source_workflow_id}>
+              <div className="pricing-workflow-cell">
+                <strong>{row.name}</strong>
+                <small>{row.source_workflow_id} · {row.field_count || 0} field(s){row.action ? ` · ${row.action}` : ""}</small>
+              </div>
+              <label className="pricing-input-cell"><span>Run</span><input type="number" min={0} value={row.run_cost} onChange={(event) => setPricingRows((rows) => rows.map((item) => item.source_workflow_id === row.source_workflow_id ? { ...item, run_cost: Number(event.target.value) } : item))} /></label>
+              <label className="pricing-input-cell"><span>Transfer</span><input type="number" min={0} value={row.transfer_cost} onChange={(event) => setPricingRows((rows) => rows.map((item) => item.source_workflow_id === row.source_workflow_id ? { ...item, transfer_cost: Number(event.target.value) } : item))} /></label>
+              <label className={`pricing-visibility ${row.is_visible_to_users ? "is-visible" : ""}`}><input type="checkbox" checked={row.is_visible_to_users} onChange={(event) => setPricingRows((rows) => rows.map((item) => item.source_workflow_id === row.source_workflow_id ? { ...item, is_visible_to_users: event.target.checked } : item))} /> <span>{row.is_visible_to_users ? "Visible to users" : "Hidden"}</span></label>
+              <button className="btn compact-save" type="button" onClick={() => savePricing(row)}>Save</button>
+            </div>
+          ))}
+          {filteredPricing.length === 0 && <div className="empty-card">No synced workflow schemas found for pricing.</div>}
+        </div>
+      </div>
+
+      <div className="table-card transaction-card">
+        <div className="table-card-head">
+          <div>
+            <h2>Point transactions</h2>
+            <p className="muted">{transactions.length} latest record(s)</p>
+          </div>
+        </div>
+        <table className="table">
+          <thead><tr><th>User</th><th>Action</th><th>Points</th><th>Balance</th><th>Time</th></tr></thead>
+          <tbody>
+            {transactions.slice(0, 8).map((tx) => (
+              <tr key={tx.id}>
+                <td><strong>{tx.user_name || "User"}</strong><small>{tx.user_email || ""}</small></td>
+                <td>{tx.workflow_name || titleCase(tx.action_type)}</td>
+                <td><span className={tx.points_delta > 0 ? "pill ok" : "pill warn"}>{tx.points_delta > 0 ? "+" : ""}{tx.points_delta}</span></td>
+                <td>{tx.balance_after}</td>
+                <td>{formatRelativeTime(tx.created_at)}</td>
+              </tr>
+            ))}
+            {transactions.length === 0 && <tr><td colSpan={5} className="empty-cell">No point transactions yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Users() {
+  const [subTab, setSubTab] = useState<UsersSubTab>("accounts");
   const [users, setUsers] = useState<UserItem[]>([]);
   const [workflowAccessUsers, setWorkflowAccessUsers] = useState<WorkflowAccessUser[]>([]);
   const [toolSchemas, setToolSchemas] = useState<InternalToolSchema[]>([]);
@@ -2507,11 +3443,35 @@ function Users() {
   });
   const accessPages = Math.max(1, Math.ceil(filteredInternalToolUsers.length / accessPageSize));
   const visibleInternalToolUsers = filteredInternalToolUsers.slice((accessPage - 1) * accessPageSize, accessPage * accessPageSize);
+  const userSubTabs: Array<{ id: UsersSubTab; label: string; count?: number }> = [
+    { id: "accounts", label: "Accounts", count: filteredUsersTable.length },
+    { id: "n8n", label: "n8n Credentials", count: userAccounts.reduce((total, user) => total + (user.n8n_credentials?.length || 0), 0) },
+    { id: "points", label: "Points & Pricing" },
+    { id: "internal-tools", label: "Internal Tools", count: filteredInternalToolUsers.length },
+    { id: "workflow-access", label: "Workflow Access", count: filteredWorkflowAccessUsers.length },
+  ];
 
   return (
     <section className="section">
       {confirmDialog}
-      <div className="two-col">
+      <div className="user-section-tabs" role="tablist" aria-label="User management sections">
+        {userSubTabs.map((item) => (
+          <button
+            key={item.id}
+            className={subTab === item.id ? "active" : ""}
+            type="button"
+            onClick={() => setSubTab(item.id)}
+          >
+            <span>{item.label}</span>
+            {typeof item.count === "number" && <em>{item.count}</em>}
+          </button>
+        ))}
+      </div>
+      <div className="notice">{message || "Manage user accounts, wallets, n8n credentials, and workflow access from focused sub-sections."}</div>
+
+      {subTab === "accounts" && (
+        <>
+          <div className="two-col">
         <form className="card" onSubmit={createUser}>
           <h2>Create user account</h2>
           <label className="field"><span>Name</span><input className="input" name="name" required /></label>
@@ -2526,7 +3486,51 @@ function Users() {
           <label className="field"><span>Password</span><input className="input" name="password" type="password" minLength={8} required placeholder="Set password for this user" /></label>
           <button className="btn" type="submit">Create user</button>
         </form>
+        <div className="card user-section-summary">
+          <h2>Account overview</h2>
+          <div className="grid compact-grid">
+            <div><strong>{users.length}</strong><span>Total accounts</span></div>
+            <div><strong>{userAccounts.length}</strong><span>Users</span></div>
+            <div><strong>{users.filter((item) => item.role === "admin").length}</strong><span>Admins</span></div>
+            <div><strong>{users.filter((item) => item.is_active).length}</strong><span>Active</span></div>
+          </div>
+        </div>
+      </div>
 
+      <div className="table-card">
+        <div className="table-card-head">
+          <div>
+            <h2>Users</h2>
+            <p className="muted">{filteredUsersTable.length} account(s)</p>
+          </div>
+          <label className="module-search access-search">
+            <span>⌕</span>
+            <input value={usersTableSearch} onChange={(event) => setUsersTableSearch(event.target.value)} placeholder="Search users or credentials..." />
+          </label>
+        </div>
+        <table className="table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Points</th><th>n8n</th><th>Status</th></tr></thead>
+          <tbody>
+            {filteredUsersTable.map((item) => (
+              <tr key={item.id}>
+                <td>{item.name}</td>
+                <td>{item.email}</td>
+                <td><span className={item.role === "admin" ? "pill ok" : "pill"}>{item.role}</span></td>
+                <td>{item.role === "user" ? `${item.points_balance || 0} pts` : "n/a"}</td>
+                <td>{item.n8n_instances} connection(s)</td>
+                <td>{item.is_active ? "Active" : "Disabled"}</td>
+              </tr>
+            ))}
+            {filteredUsersTable.length === 0 && <tr><td colSpan={6} className="empty-cell">No users match this search.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+        </>
+      )}
+
+      {subTab === "n8n" && (
+        <>
+          <div className="two-col">
         <form className="card" onSubmit={saveUserN8nCredentials}>
           <h2>{credentialDraft.credentialId ? "Update user n8n credentials" : "Add user n8n credentials"}</h2>
           <div className="field">
@@ -2552,9 +3556,67 @@ function Users() {
             {credentialDraft.credentialId && <button className="btn secondary" type="button" onClick={resetCredentialDraft}>Cancel edit</button>}
           </div>
         </form>
+        <div className="card user-section-summary">
+          <h2>n8n coverage</h2>
+          <div className="grid compact-grid">
+            <div><strong>{userAccounts.filter((item) => item.n8n_instances > 0).length}</strong><span>Connected users</span></div>
+            <div><strong>{userAccounts.filter((item) => item.n8n_instances === 0).length}</strong><span>Missing n8n</span></div>
+            <div><strong>{userAccounts.reduce((total, user) => total + (user.n8n_credentials?.length || 0), 0)}</strong><span>Credentials</span></div>
+            <div><strong>{filteredCredentialUsers.length}</strong><span>Shown users</span></div>
+          </div>
+        </div>
       </div>
 
-      <div className="notice">{message}</div>
+      <div className="table-card">
+        <div className="table-card-head">
+          <div>
+            <h2>User n8n credentials</h2>
+            <p className="muted">{filteredUsersTable.length} account(s)</p>
+          </div>
+          <label className="module-search access-search">
+            <span>⌕</span>
+            <input value={usersTableSearch} onChange={(event) => setUsersTableSearch(event.target.value)} placeholder="Search users or credentials..." />
+          </label>
+        </div>
+        <table className="table">
+          <thead><tr><th>Name</th><th>Email</th><th>User n8n Credentials</th><th>Status</th></tr></thead>
+          <tbody>
+            {filteredUsersTable.map((item) => (
+              <tr key={item.id}>
+                <td>{item.name}</td>
+                <td>{item.email}</td>
+                <td>
+                  <div className="user-credentials">
+                    {(item.n8n_credentials || []).length === 0 && <span className="credential-empty">No n8n credentials</span>}
+                    {(item.n8n_credentials || []).map((credential) => (
+                      <div className="credential-row" key={credential.id}>
+                        <div>
+                          <strong>{credential.name}</strong>
+                          <small>{credential.environment} · {credential.base_url}</small>
+                        </div>
+                        <span className="pill">{credential.api_key_status}</span>
+                        {credential.is_default && <span className="pill ok">Default</span>}
+                        <div className="credential-actions">
+                          <button className="table-action" type="button" onClick={() => editCredential(item, credential)}>Edit</button>
+                          <button className="table-action danger-action" type="button" onClick={() => deleteCredential(item, credential)}>Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </td>
+                <td>{item.is_active ? "Active" : "Disabled"}</td>
+              </tr>
+            ))}
+            {filteredUsersTable.length === 0 && <tr><td colSpan={4} className="empty-cell">No users match this search.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+        </>
+      )}
+
+      {subTab === "points" && <PointsAndPricingAdmin onChanged={loadUsers} />}
+
+      {subTab === "internal-tools" && (
       <div className="access-manager">
         <form className="card access-editor" onSubmit={saveInternalToolAccess}>
           <div className="access-card-head">
@@ -2649,6 +3711,9 @@ function Users() {
           </div>
         </div>
       </div>
+      )}
+
+      {subTab === "workflow-access" && (
       <div className="table-card">
         <div className="table-card-head">
           <div>
@@ -2691,51 +3756,7 @@ function Users() {
           </tbody>
         </table>
       </div>
-      <div className="table-card">
-        <div className="table-card-head">
-          <div>
-            <h2>Users</h2>
-            <p className="muted">{filteredUsersTable.length} account(s)</p>
-          </div>
-          <label className="module-search access-search">
-            <span>⌕</span>
-            <input value={usersTableSearch} onChange={(event) => setUsersTableSearch(event.target.value)} placeholder="Search users or credentials..." />
-          </label>
-        </div>
-        <table className="table">
-          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>User n8n Credentials</th><th>Status</th></tr></thead>
-          <tbody>
-            {filteredUsersTable.map((item) => (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.email}</td>
-                <td><span className={item.role === "admin" ? "pill ok" : "pill"}>{item.role}</span></td>
-                <td>
-                  <div className="user-credentials">
-                    {(item.n8n_credentials || []).length === 0 && <span className="credential-empty">No n8n credentials</span>}
-                    {(item.n8n_credentials || []).map((credential) => (
-                      <div className="credential-row" key={credential.id}>
-                        <div>
-                          <strong>{credential.name}</strong>
-                          <small>{credential.environment} · {credential.base_url}</small>
-                        </div>
-                        <span className="pill">{credential.api_key_status}</span>
-                        {credential.is_default && <span className="pill ok">Default</span>}
-                        <div className="credential-actions">
-                          <button className="table-action" type="button" onClick={() => editCredential(item, credential)}>Edit</button>
-                          <button className="table-action danger-action" type="button" onClick={() => deleteCredential(item, credential)}>Delete</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </td>
-                <td>{item.is_active ? "Active" : "Disabled"}</td>
-              </tr>
-            ))}
-            {filteredUsersTable.length === 0 && <tr><td colSpan={5} className="empty-cell">No users match this search.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      )}
     </section>
   );
 }

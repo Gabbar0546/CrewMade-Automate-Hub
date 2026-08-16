@@ -1,6 +1,21 @@
+import { existsSync, readFileSync } from "node:fs";
+
+for (const file of [".env.local", ".env"]) {
+  if (!existsSync(file)) continue;
+  const lines = readFileSync(file, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+    const index = trimmed.indexOf("=");
+    const key = trimmed.slice(0, index).trim();
+    const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
 const baseUrl = process.env.SMOKE_BASE_URL || "http://localhost:3000";
-const email = process.env.SMOKE_EMAIL || "admin@localhost.local";
-const password = process.env.SMOKE_PASSWORD || "admin123";
+const email = process.env.SMOKE_EMAIL || process.env.SEED_ADMIN_EMAIL || "admin@localhost.local";
+const password = process.env.SMOKE_PASSWORD || process.env.SEED_ADMIN_PASSWORD || "admin123";
 
 let cookie = "";
 const created = [];
@@ -48,22 +63,26 @@ async function check(name, fn) {
 }
 
 async function main() {
-  await check("auth login", () => request("/api/auth/login", {
+  const login = await check("auth login", () => request("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   }));
+  if (!login) return;
 
   const instances = await check("n8n instances list", () => request("/api/instances"));
   const instanceId = instances?.instances?.[0]?.id;
-  if (!instanceId) throw new Error("No n8n instance available for smoke test");
-
-  await check("dashboard summary", () => request(`/api/dashboard?instanceId=${instanceId}`));
-  const workflows = await check("n8n workflows fetch", () => request(`/api/n8n/workflows?instanceId=${instanceId}`));
-  await check("n8n workflows fetch with archived", () => request(`/api/n8n/workflows?instanceId=${instanceId}&includeArchived=true`));
-  await check("n8n executions fetch", () => request(`/api/n8n/executions?instanceId=${instanceId}&limit=10`));
-  await check("n8n credentials fetch", () => request(`/api/n8n/credentials?instanceId=${instanceId}`));
+  let workflows = null;
+  if (!instanceId) {
+    console.log("SKIP n8n API checks (no n8n instance configured)");
+  } else {
+    await check("dashboard summary", () => request(`/api/dashboard?instanceId=${instanceId}`));
+    workflows = await check("n8n workflows fetch", () => request(`/api/n8n/workflows?instanceId=${instanceId}`));
+    await check("n8n workflows fetch with archived", () => request(`/api/n8n/workflows?instanceId=${instanceId}&includeArchived=true`));
+    await check("n8n executions fetch", () => request(`/api/n8n/executions?instanceId=${instanceId}&limit=10`));
+    await check("n8n credentials fetch", () => request(`/api/n8n/credentials?instanceId=${instanceId}`));
+    await check("workflow credential setup list", () => request(`/api/user/workflow-credential-setup?instanceId=${instanceId}`));
+  }
   await check("workflow schemas list", () => request("/api/workflow-schemas"));
-  await check("workflow credential setup list", () => request(`/api/user/workflow-credential-setup?instanceId=${instanceId}`));
   await check("users list", () => request("/api/users"));
   await check("user workflow access list", () => request("/api/admin/user-workflow-access"));
   await check("internal tool access list", () => request("/api/admin/internal-tool-access"));
@@ -131,6 +150,7 @@ async function main() {
   await check("api keys list", () => request("/api/api-keys"));
 
   if (process.env.RUN_TRANSFER === "1") {
+    if (!instanceId || !workflows) throw new Error("Need a connected n8n instance for transfer smoke test");
     const workflowId = workflows?.data?.[0]?.id;
     const users = await request("/api/users");
     const targetUser = users.users?.find((user) => user.role === "user" && user.n8n_instances > 0);

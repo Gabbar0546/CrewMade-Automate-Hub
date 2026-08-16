@@ -36,6 +36,34 @@ function iconFor(node: LibraryNodeData) {
   return "⚙";
 }
 
+function buildCanvasNodes(nodes: LibraryNodeData[]) {
+  const sorted = [...nodes].sort((a, b) => {
+    const ax = a.position?.[0] ?? 0;
+    const bx = b.position?.[0] ?? 0;
+    if (ax !== bx) return ax - bx;
+    return (a.position?.[1] ?? 0) - (b.position?.[1] ?? 0);
+  });
+  const normalized = sorted.map((node, index) => ({
+    node,
+    x: typeof node.position?.[0] === "number" ? node.position[0] : index * 260,
+    y: typeof node.position?.[1] === "number" ? node.position[1] : (index % 3) * 150,
+  }));
+  const xs = normalized.map((item) => item.x);
+  const ys = normalized.map((item) => item.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+  return normalized.map((item, index) => ({
+    ...item,
+    index,
+    left: 4 + ((item.x - minX) / width) * 70,
+    top: 8 + ((item.y - minY) / height) * 70,
+  }));
+}
+
 export function LibraryNodeFlow({
   nodes,
   maxShow = 12,
@@ -60,6 +88,43 @@ export function LibraryNodeFlow({
 
   const visible = sorted.slice(0, maxShow);
   const remaining = nodes.length - maxShow;
+
+  if (!compact) {
+    const canvasNodes = buildCanvasNodes(visible);
+    return (
+      <div className="lib-node-canvas" onClick={onClick}>
+        <svg className="lib-node-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          {canvasNodes.slice(0, -1).map((item, index) => {
+            const next = canvasNodes[index + 1];
+            return (
+              <line
+                key={`${item.node.name || item.node.type}-${index}`}
+                x1={Math.min(96, item.left + 9)}
+                y1={Math.min(96, item.top + 5)}
+                x2={Math.max(4, next.left)}
+                y2={Math.min(96, next.top + 5)}
+              />
+            );
+          })}
+        </svg>
+        {canvasNodes.map(({ node, left, top, index }) => {
+          const trigger = isTrigger(node);
+          return (
+            <span
+              className={trigger ? "lib-canvas-node trigger" : "lib-canvas-node"}
+              key={`${node.name || node.type}-${index}`}
+              style={{ left: `${left}%`, top: `${top}%` }}
+            >
+              <span className={trigger ? "lib-canvas-icon trigger" : "lib-canvas-icon"}>{iconFor(node)}</span>
+              <small>{nodeLabel(node)}</small>
+            </span>
+          );
+        })}
+        {remaining > 0 && <span className="lib-node-more canvas-more">+{remaining} more</span>}
+        {onClick && <span className="lib-preview-hover">Preview</span>}
+      </div>
+    );
+  }
 
   return (
     <div className={compact ? "lib-node-flow compact" : "lib-node-flow"} onClick={onClick}>

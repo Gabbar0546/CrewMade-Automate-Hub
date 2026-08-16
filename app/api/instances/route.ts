@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { requireUser, jsonError } from "@/lib/auth";
 import { encryptSecret } from "@/lib/secrets";
 import { listInstancesForUser } from "@/lib/n8n";
+import { assertRateLimit, assertSameOrigin } from "@/lib/request-guards";
 
 const InstanceSchema = z.object({
   name: z.string().min(1),
@@ -11,6 +12,21 @@ const InstanceSchema = z.object({
   apiKey: z.string().min(1),
   isDefault: z.boolean().default(false),
 });
+
+async function verifyN8nConnection(baseUrl: string, apiKey: string) {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl.replace(/\/+$/, "")}/api/v1/workflows?limit=1`, {
+      signal: AbortSignal.timeout(20000),
+      headers: { Accept: "application/json", "X-N8N-API-KEY": apiKey },
+    });
+  } catch (error) {
+    throw Object.assign(new Error(`Could not reach n8n: ${error instanceof Error ? error.message : "network error"}`), { status: 400 });
+  }
+  if (!response.ok) {
+    throw Object.assign(new Error(`n8n verification failed (${response.status})`), { status: 400 });
+  }
+}
 
 export async function GET() {
   try {
@@ -23,8 +39,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
+    assertRateLimit(request, { key: "n8n-instance-create", limit: 12, windowMs: 60_000 });
     const user = await requireUser();
     const body = InstanceSchema.parse(await request.json());
+    await verifyN8nConnection(body.baseUrl, body.apiKey);
     if (body.isDefault) {
       await query("UPDATE n8n_instances SET is_default = FALSE WHERE owner_user_id = $1", [user.id]);
     }

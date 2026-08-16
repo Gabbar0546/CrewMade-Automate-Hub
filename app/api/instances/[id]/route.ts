@@ -1,10 +1,13 @@
 import { query } from "@/lib/db";
 import { requireUser, jsonError } from "@/lib/auth";
+import { assertRateLimit, assertSameOrigin } from "@/lib/request-guards";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(request: Request, { params }: Params) {
   try {
+    assertSameOrigin(request);
+    assertRateLimit(request, { key: "n8n-instance-delete", limit: 20, windowMs: 60_000 });
     const user = await requireUser();
     const { id } = await params;
     const result = await query("DELETE FROM n8n_instances WHERE id = $1 AND owner_user_id = $2 RETURNING id", [
