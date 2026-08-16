@@ -2,8 +2,10 @@ import { z } from "zod";
 import { query } from "@/lib/db";
 import { requireAdmin, jsonError } from "@/lib/auth";
 import { getAccessibleInstance } from "@/lib/n8n";
+import { assertRateLimit, assertSameOrigin } from "@/lib/request-guards";
+import { safeJson } from "@/lib/redact";
 
-const TRANSFER_WEBHOOK_URL = "https://n8n.crewmadeautomate.online/webhook/transfer-submit-to-user";
+const TRANSFER_WEBHOOK_URL = process.env.TRANSFER_WEBHOOK_URL || "https://n8n.crewmadeautomate.online/webhook/transfer-submit-to-user";
 
 const TransferSchema = z.object({
   sourceInstanceId: z.number(),
@@ -257,6 +259,8 @@ async function ensureMinimalUserWorkflowSchema({
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
+    assertRateLimit(request, { key: "admin-workflow-transfer", limit: 30, windowMs: 60_000 });
     const admin = await requireAdmin();
     const body = TransferSchema.parse(await request.json());
 
@@ -330,7 +334,7 @@ export async function POST(request: Request) {
               body.workflowId,
               existing.rows[0].target_workflow_id,
               targetInfo.instanceId,
-              JSON.stringify({ skipped: true }),
+              safeJson({ skipped: true }),
             ],
           );
           continue;
@@ -370,7 +374,7 @@ export async function POST(request: Request) {
             newWorkflowId,
             targetInfo.instanceId,
             target.baseUrl,
-            JSON.stringify(webhookResponse),
+            safeJson(webhookResponse),
           ],
         );
         const workflowAccessId = transferRow.rows[0]?.id;
@@ -401,7 +405,7 @@ export async function POST(request: Request) {
           [
             admin.id,
             newWorkflowId,
-            JSON.stringify({
+            safeJson({
               sourceInstanceId: body.sourceInstanceId,
               targetInstanceId: targetInfo.instanceId,
               targetUserId: targetInfo.userId,
@@ -423,7 +427,7 @@ export async function POST(request: Request) {
             targetInfo.instanceId,
             warning ? "warning" : "success",
             warning || responseMessage(webhookResponse, "Workflow transferred"),
-            JSON.stringify({ webhookResponse, schemaCopied }),
+            safeJson({ webhookResponse, schemaCopied }),
           ],
         );
         results.push({
@@ -445,7 +449,7 @@ export async function POST(request: Request) {
             body.workflowId,
             targetInfo.instanceId,
             error instanceof Error ? error.message : "Transfer failed",
-            JSON.stringify({ error: error instanceof Error ? error.message : error }),
+            safeJson({ error: error instanceof Error ? error.message : error }),
           ],
         );
         results.push({

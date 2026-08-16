@@ -2,6 +2,8 @@ import { z } from "zod";
 import { query } from "@/lib/db";
 import { requireUser, jsonError } from "@/lib/auth";
 import { n8nFetch } from "@/lib/n8n";
+import { assertRateLimit, assertSameOrigin } from "@/lib/request-guards";
+import { safeJson } from "@/lib/redact";
 
 const ApplySchema = z.object({
   accessId: z.number(),
@@ -61,6 +63,8 @@ function responseMessage(data: unknown, fallback: string) {
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
+    assertRateLimit(request, { key: "credential-map-activate", limit: 20, windowMs: 60_000 });
     const user = await requireUser();
     const body = ApplySchema.parse(await request.json());
     const access = await query<{
@@ -120,7 +124,7 @@ export async function POST(request: Request) {
            updated_at = NOW()
        WHERE id = $2`,
       [
-        JSON.stringify({
+        safeJson({
           credential_mapping: body.mappings,
           credential_mapping_updated_at: new Date().toISOString(),
           activation_error: activationError,
@@ -141,7 +145,7 @@ export async function POST(request: Request) {
         transfer.target_instance_id,
         activationError ? "warning" : "success",
         activationError || "Credentials mapped and workflow activated",
-        JSON.stringify({ mappings: body.mappings, updateResponse, activationResponse }),
+        safeJson({ mappings: body.mappings, updateResponse, activationResponse }),
       ],
     );
 

@@ -18,6 +18,20 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automation_hub_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d automation_hub_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 8
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/automation_hub_ci
       SESSION_SECRET: ci-session-secret-change-in-production
@@ -36,6 +50,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run database migrations
+        run: npm run db:migrate
 
       - name: Build application
         run: npm run build
@@ -61,4 +78,11 @@ jobs:
             git pull --ff-only origin main
             docker compose up -d --build --remove-orphans
             docker compose ps
+            for attempt in $(seq 1 30); do
+              if curl -fsS --resolve app.crewmadeautomate.online:443:127.0.0.1 https://app.crewmadeautomate.online/login >/dev/null; then
+                exit 0
+              fi
+              echo "Waiting for app health check... attempt ${attempt}/30"
+              sleep 2
+            done
             curl -fsS --resolve app.crewmadeautomate.online:443:127.0.0.1 https://app.crewmadeautomate.online/login >/dev/null

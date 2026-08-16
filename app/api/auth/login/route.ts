@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { query } from "@/lib/db";
 import { setSessionCookie, jsonError } from "@/lib/auth";
+import { assertRateLimit, assertSameOrigin } from "@/lib/request-guards";
 
 const LoginSchema = z.object({
   email: z.string().email(),
@@ -10,6 +11,8 @@ const LoginSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    assertSameOrigin(request);
+    assertRateLimit(request, { key: "auth-login", limit: 10, windowMs: 60_000 });
     const body = LoginSchema.parse(await request.json());
     const result = await query<{
       id: number;
